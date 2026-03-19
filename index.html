@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#101828" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Motorista Pro" />
+  <title>Motorista Pro</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="public/icons/icon-192.png" />
+  <link rel="icon" href="public/icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="hero panel">
+      <div>
+        <p class="eyebrow">Controle de Motorista</p>
+        <h1>Seu painel de faturamento da Uber</h1>
+        <p class="hero-text">
+          Inicie o dia, pause quando precisar, finalize e acompanhe faturamento bruto,
+          combustível, lucro líquido, corridas, quilômetros rodados e tempo ao volante.
+        </p>
+      </div>
+      <div class="install-card">
+        <strong>No iPhone</strong>
+        <p>No Safari, toque em Compartilhar → <b>Adicionar à Tela de Início</b>. Assim ele abre igual app.</p>
+      </div>
+    </section>
+
+    <section class="panel action-panel">
+      <div>
+        <h2>Começar o trabalho</h2>
+        <p>Ao iniciar, o app começa a contar o seu tempo ao volante.</p>
+      </div>
+      <div id="start-area"></div>
+    </section>
+
+    <section class="panel hidden" id="finish-panel">
+      <h2>Fechamento do dia</h2>
+      <div class="form-grid">
+        <label>
+          <span>Quilometragem atual do carro</span>
+          <input id="endKm" inputmode="decimal" placeholder="Ex: 125540" />
+        </label>
+        <label>
+          <span>Faturamento bruto do dia</span>
+          <input id="grossEarnings" inputmode="decimal" placeholder="Ex: 420,50" />
+        </label>
+        <label>
+          <span>Colocou combustível? Quanto gastou?</span>
+          <input id="fuelCost" inputmode="decimal" placeholder="Use 0 se não abasteceu" />
+        </label>
+        <label>
+          <span>Quantas corridas você fez?</span>
+          <input id="rides" inputmode="numeric" />
+        </label>
+        <label>
+          <span>Observações do dia</span>
+          <textarea id="notes" rows="3" placeholder="Opcional"></textarea>
+        </label>
+        <div class="inline-buttons">
+          <button class="primary-button" id="save-day-btn">Salvar e fechar o dia</button>
+          <button class="ghost-button" id="cancel-finish-btn">Voltar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel hidden" id="edit-panel">
+      <h2>Editar dia salvo</h2>
+      <div class="form-grid">
+        <label>
+          <span>Data</span>
+          <input id="editDate" type="date" />
+        </label>
+        <label>
+          <span>Hora de início</span>
+          <input id="editStartTime" type="time" />
+        </label>
+        <label>
+          <span>Hora de fim</span>
+          <input id="editEndTime" type="time" />
+        </label>
+        <label>
+          <span>KM inicial</span>
+          <input id="editStartKm" inputmode="decimal" />
+        </label>
+        <label>
+          <span>KM final</span>
+          <input id="editEndKm" inputmode="decimal" />
+        </label>
+        <label>
+          <span>Faturamento bruto</span>
+          <input id="editGrossEarnings" inputmode="decimal" />
+        </label>
+        <label>
+          <span>Combustível</span>
+          <input id="editFuelCost" inputmode="decimal" />
+        </label>
+        <label>
+          <span>Corridas</span>
+          <input id="editRides" inputmode="numeric" />
+        </label>
+        <div class="inline-buttons compact-row">
+          <label>
+            <span>Tempo ao volante - horas</span>
+            <input id="editDriveHours" inputmode="numeric" />
+          </label>
+          <label>
+            <span>Tempo ao volante - minutos</span>
+            <input id="editDriveMinutes" inputmode="numeric" />
+          </label>
+        </div>
+        <label>
+          <span>Observações</span>
+          <textarea id="editNotes" rows="3"></textarea>
+        </label>
+        <div class="inline-buttons">
+          <button class="primary-button" id="update-day-btn">Salvar alterações</button>
+          <button class="ghost-button" id="cancel-edit-btn">Cancelar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Resumo</p>
+          <h2>Período selecionado</h2>
+        </div>
+        <div class="filters">
+          <select id="filterMode">
+            <option value="week">Semana</option>
+            <option value="month">Mês</option>
+            <option value="year">Ano</option>
+            <option value="range">Data personalizada</option>
+          </select>
+          <input type="date" id="rangeStart" class="hidden" />
+          <input type="date" id="rangeEnd" class="hidden" />
+        </div>
+      </div>
+      <div class="cards-grid" id="summary-cards"></div>
+      <div class="chart-wrap">
+        <div class="chart-legend">
+          <span><i class="legend gross"></i>Faturamento</span>
+          <span><i class="legend fuel"></i>Combustível</span>
+          <span><i class="legend net"></i>Líquido</span>
+        </div>
+        <div class="bars-area" id="bars-area"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="latest-panel"></section>
+
+    <section class="panel">
+      <p class="eyebrow">Histórico</p>
+      <h2>Dias salvos</h2>
+      <div class="history-list" id="history-list"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

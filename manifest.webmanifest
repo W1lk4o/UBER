@@ -1,0 +1,22 @@
+{
+  "name": "Motorista Pro",
+  "short_name": "Motorista Pro",
+  "description": "Dashboard para motorista acompanhar faturamento, combustível e tempo ao volante.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#101828",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "public/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "public/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
