@@ -1,28 +1,15 @@
-# Motorista Pro
+# Motorista Pro Uber
 
-Aplicação web simples para acompanhar:
+Projeto estático pronto para GitHub + Vercel.
 
-- hora que iniciou o trabalho
-- cronômetro com pausa e continuação
-- quilometragem inicial e final
-- faturamento bruto
-- gasto com combustível
-- lucro líquido
-- corridas
-- resumo por semana, mês, ano ou intervalo personalizado
-- histórico salvo no navegador
+## Como subir
 
-## Publicar com GitHub + Vercel
+1. Extraia este ZIP.
+2. Envie **os arquivos da raiz** (`index.html`, `app.js`, `styles.css`, `manifest.webmanifest`, `vercel.json`, pasta `icons`) para a raiz do repositório.
+3. Na Vercel, use esse repositório sem subpasta extra.
+4. Framework Preset: **Other**.
+5. Root Directory: **.**
+6. Build Command: vazio.
+7. Output Directory: vazio.
 
-1. Crie um repositório no GitHub.
-2. Envie estes arquivos para o repositório.
-3. Entre na Vercel e importe o projeto do GitHub.
-4. Faça o deploy.
-
-Como é um projeto estático, a Vercel publica sem backend.
-
-## Importante
-
-Os dados ficam salvos no navegador usando `localStorage`.
-Isso funciona muito bem para começar de graça, mas os dados não sincronizam entre aparelhos.
-Na próxima versão, vale colocar login e banco de dados para não perder histórico ao trocar de celular.
+Se você colocar tudo dentro de uma subpasta, a Vercel pode publicar sem achar o `index.html` da raiz e devolver 404.
