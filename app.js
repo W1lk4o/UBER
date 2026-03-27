@@ -1,597 +1,472 @@
-const STORAGE_KEY = 'uber-driver-dashboard-v2';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
-const state = {
-  sessions: [],
-  activeSession: null,
-  editingSessionId: null,
-  filters: getDefaultFilters(),
-  now: Date.now(),
+const STORAGE_KEYS = {
+  supabaseUrl: 'uber_supabase_url',
+  supabaseAnonKey: 'uber_supabase_anon_key',
+  session: 'uber_active_session'
 };
 
+let supabase = null;
+let currentUser = null;
+let entries = [];
+let activeSession = loadActiveSession();
+let timerInterval = null;
+let chart = null;
+
+const $ = (id) => document.getElementById(id);
 const els = {
-  startArea: document.getElementById('start-area'),
-  finishPanel: document.getElementById('finish-panel'),
-  editPanel: document.getElementById('edit-panel'),
-  summaryCards: document.getElementById('summary-cards'),
-  barsArea: document.getElementById('bars-area'),
-  historyList: document.getElementById('history-list'),
-  latestPanel: document.getElementById('latest-panel'),
-  filterMode: document.getElementById('filterMode'),
-  rangeStart: document.getElementById('rangeStart'),
-  rangeEnd: document.getElementById('rangeEnd'),
-  endKm: document.getElementById('endKm'),
-  grossEarnings: document.getElementById('grossEarnings'),
-  fuelCost: document.getElementById('fuelCost'),
-  rides: document.getElementById('rides'),
-  notes: document.getElementById('notes'),
-  saveDayBtn: document.getElementById('save-day-btn'),
-  cancelFinishBtn: document.getElementById('cancel-finish-btn'),
-  editDate: document.getElementById('editDate'),
-  editStartTime: document.getElementById('editStartTime'),
-  editEndTime: document.getElementById('editEndTime'),
-  editStartKm: document.getElementById('editStartKm'),
-  editEndKm: document.getElementById('editEndKm'),
-  editGrossEarnings: document.getElementById('editGrossEarnings'),
-  editFuelCost: document.getElementById('editFuelCost'),
-  editRides: document.getElementById('editRides'),
-  editDriveHours: document.getElementById('editDriveHours'),
-  editDriveMinutes: document.getElementById('editDriveMinutes'),
-  editNotes: document.getElementById('editNotes'),
-  updateDayBtn: document.getElementById('update-day-btn'),
-  cancelEditBtn: document.getElementById('cancel-edit-btn'),
+  openSettingsBtn: $('openSettingsBtn'), logoutBtn: $('logoutBtn'),
+  authCard: $('authCard'), authForm: $('authForm'), signUpBtn: $('signUpBtn'), authEmail: $('authEmail'), authPassword: $('authPassword'),
+  setupWarning: $('setupWarning'), appContent: $('appContent'),
+  workDate: $('workDate'), startKm: $('startKm'), startForm: $('startForm'),
+  sessionPanel: $('sessionPanel'), elapsedText: $('elapsedText'), startAtText: $('startAtText'), todayStatus: $('todayStatus'),
+  pauseBtn: $('pauseBtn'), resumeBtn: $('resumeBtn'), finishOpenBtn: $('finishOpenBtn'),
+  finishDialog: $('finishDialog'), closeFinishDialog: $('closeFinishDialog'), finishForm: $('finishForm'),
+  endKm: $('endKm'), grossAmount: $('grossAmount'), fuelAmount: $('fuelAmount'), rideCount: $('rideCount'), refueled: $('refueled'), notes: $('notes'),
+  periodType: $('periodType'), fromDate: $('fromDate'), toDate: $('toDate'), customRange: $('customRange'),
+  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), netTotal: $('netTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
+  historyList: $('historyList'), historyEmpty: $('historyEmpty'),
+  editDialog: $('editDialog'), closeEditDialog: $('closeEditDialog'), editForm: $('editForm'), deleteEntryBtn: $('deleteEntryBtn'),
+  editId: $('editId'), editDate: $('editDate'), editStartTime: $('editStartTime'), editEndTime: $('editEndTime'), editDriveTime: $('editDriveTime'), editStartKm: $('editStartKm'), editEndKm: $('editEndKm'), editGross: $('editGross'), editFuel: $('editFuel'), editRides: $('editRides'), editRefueled: $('editRefueled'), editNotes: $('editNotes'),
+  exportBtn: $('exportBtn'), importInput: $('importInput'), syncBtn: $('syncBtn'),
+  settingsDialog: $('settingsDialog'), closeSettingsDialog: $('closeSettingsDialog'), settingsForm: $('settingsForm'), supabaseUrlInput: $('supabaseUrlInput'), supabaseAnonKeyInput: $('supabaseAnonKeyInput')
 };
 
-loadState();
-attachEvents();
-render();
-setInterval(() => {
-  state.now = Date.now();
-  if (state.activeSession) renderStartArea();
-}, 1000);
-
-function attachEvents() {
-  els.filterMode.addEventListener('change', (e) => {
-    state.filters.mode = e.target.value;
-    toggleRangeInputs();
-    render();
-  });
-  els.rangeStart.addEventListener('change', (e) => {
-    state.filters.rangeStart = e.target.value;
-    render();
-  });
-  els.rangeEnd.addEventListener('change', (e) => {
-    state.filters.rangeEnd = e.target.value;
-    render();
-  });
-  els.saveDayBtn.addEventListener('click', saveDay);
-  els.cancelFinishBtn.addEventListener('click', closeFinishPanel);
-  els.updateDayBtn.addEventListener('click', updateSession);
-  els.cancelEditBtn.addEventListener('click', closeEditPanel);
+function boot() {
+  setToday();
+  bindEvents();
+  restoreSupabaseClient();
+  renderSession();
 }
 
-function loadState() {
-  const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('uber-driver-dashboard-v1');
-  if (!raw) return;
-  try {
-    const parsed = JSON.parse(raw);
-    state.sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
-    state.activeSession = parsed.activeSession || null;
-  } catch {
-    // ignore
+function bindEvents() {
+  els.openSettingsBtn.addEventListener('click', openSettings);
+  els.closeSettingsDialog.addEventListener('click', () => els.settingsDialog.close());
+  els.settingsForm.addEventListener('submit', saveSupabaseSettings);
+
+  els.authForm.addEventListener('submit', signIn);
+  els.signUpBtn.addEventListener('click', signUp);
+  els.logoutBtn.addEventListener('click', logout);
+
+  els.startForm.addEventListener('submit', startDay);
+  els.pauseBtn.addEventListener('click', pauseSession);
+  els.resumeBtn.addEventListener('click', resumeSession);
+  els.finishOpenBtn.addEventListener('click', openFinishDialog);
+  els.closeFinishDialog.addEventListener('click', () => els.finishDialog.close());
+  els.finishForm.addEventListener('submit', finishDay);
+
+  els.periodType.addEventListener('change', refreshDashboard);
+  els.fromDate.addEventListener('change', refreshDashboard);
+  els.toDate.addEventListener('change', refreshDashboard);
+
+  els.closeEditDialog.addEventListener('click', () => els.editDialog.close());
+  els.editForm.addEventListener('submit', saveEdit);
+  els.deleteEntryBtn.addEventListener('click', deleteEntry);
+
+  els.exportBtn.addEventListener('click', exportJson);
+  els.importInput.addEventListener('change', importJson);
+  els.syncBtn.addEventListener('click', syncEntries);
+}
+
+function restoreSupabaseClient() {
+  const url = localStorage.getItem(STORAGE_KEYS.supabaseUrl) || '';
+  const key = localStorage.getItem(STORAGE_KEYS.supabaseAnonKey) || '';
+  els.supabaseUrlInput.value = url;
+  els.supabaseAnonKeyInput.value = key;
+  if (!url || !key) {
+    renderAuthState();
+    return;
   }
+  supabase = createClient(url, key);
+  initAuthState();
 }
 
-function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
-    sessions: state.sessions,
-    activeSession: state.activeSession,
-  }));
+async function initAuthState() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    alert('Erro ao ler sessão do Supabase: ' + error.message);
+    return;
+  }
+  currentUser = data.session?.user ?? null;
+  renderAuthState();
+  if (currentUser) await loadEntries();
+  supabase.auth.onAuthStateChange(async (_event, session) => {
+    currentUser = session?.user ?? null;
+    renderAuthState();
+    if (currentUser) await loadEntries();
+    else { entries = []; refreshDashboard(); }
+  });
 }
 
-function render() {
-  sortSessions();
-  toggleRangeInputs();
-  renderStartArea();
-  renderSummary();
-  renderLatestDay();
+function renderAuthState() {
+  const hasConfig = !!supabase;
+  els.setupWarning.classList.toggle('hidden', hasConfig);
+  els.authCard.classList.toggle('hidden', !hasConfig || !!currentUser);
+  els.appContent.classList.toggle('hidden', !currentUser);
+  els.logoutBtn.classList.toggle('hidden', !currentUser);
+}
+
+function openSettings() { els.settingsDialog.showModal(); }
+
+async function saveSupabaseSettings(event) {
+  event.preventDefault();
+  const url = els.supabaseUrlInput.value.trim();
+  const key = els.supabaseAnonKeyInput.value.trim();
+  localStorage.setItem(STORAGE_KEYS.supabaseUrl, url);
+  localStorage.setItem(STORAGE_KEYS.supabaseAnonKey, key);
+  supabase = createClient(url, key);
+  els.settingsDialog.close();
+  await initAuthState();
+}
+
+async function signUp() {
+  if (!supabase) return alert('Configure o Supabase primeiro.');
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value.trim();
+  const { error } = await supabase.auth.signUp({ email, password });
+  if (error) return alert(error.message);
+  alert('Conta criada. Se o Supabase estiver pedindo confirmação de e-mail, confira sua caixa de entrada.');
+}
+
+async function signIn(event) {
+  event.preventDefault();
+  if (!supabase) return alert('Configure o Supabase primeiro.');
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value.trim();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return alert(error.message);
+}
+
+async function logout() {
+  if (!supabase) return;
+  const { error } = await supabase.auth.signOut();
+  if (error) return alert(error.message);
+}
+
+function setToday() {
+  const today = new Date().toISOString().slice(0, 10);
+  els.workDate.value = today;
+}
+
+function loadActiveSession() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.session) || 'null'); }
+  catch { return null; }
+}
+function persistActiveSession() {
+  localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(activeSession));
+}
+
+function startDay(event) {
+  event.preventDefault();
+  if (activeSession) return alert('Já existe um dia em andamento.');
+  activeSession = {
+    date: els.workDate.value,
+    startKm: Number(els.startKm.value),
+    startAt: new Date().toISOString(),
+    elapsedMs: 0,
+    pauseStartedAt: null,
+    status: 'running'
+  };
+  persistActiveSession();
+  renderSession();
+}
+
+function pauseSession() {
+  if (!activeSession || activeSession.status !== 'running') return;
+  activeSession.status = 'paused';
+  activeSession.pauseStartedAt = new Date().toISOString();
+  activeSession.elapsedMs = getElapsedMs();
+  persistActiveSession();
+  renderSession();
+}
+
+function resumeSession() {
+  if (!activeSession || activeSession.status !== 'paused') return;
+  const pausedFor = Date.now() - new Date(activeSession.pauseStartedAt).getTime();
+  activeSession.startAt = new Date(new Date(activeSession.startAt).getTime() + pausedFor).toISOString();
+  activeSession.pauseStartedAt = null;
+  activeSession.status = 'running';
+  persistActiveSession();
+  renderSession();
+}
+
+function getElapsedMs() {
+  if (!activeSession) return 0;
+  if (activeSession.status === 'paused') return activeSession.elapsedMs || 0;
+  return Date.now() - new Date(activeSession.startAt).getTime();
+}
+
+function renderSession() {
+  clearInterval(timerInterval);
+  const active = !!activeSession;
+  els.sessionPanel.classList.toggle('hidden', !active);
+  els.todayStatus.textContent = active ? (activeSession.status === 'running' ? 'Rodando' : 'Pausado') : 'Sem corrida ativa';
+  if (!active) return;
+  els.startAtText.textContent = new Date(activeSession.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  els.pauseBtn.classList.toggle('hidden', activeSession.status !== 'running');
+  els.resumeBtn.classList.toggle('hidden', activeSession.status !== 'paused');
+  const tick = () => { els.elapsedText.textContent = formatDuration(getElapsedMs()); };
+  tick();
+  if (activeSession.status === 'running') timerInterval = setInterval(tick, 1000);
+}
+
+function openFinishDialog() {
+  if (!activeSession) return alert('Nenhum dia ativo.');
+  els.endKm.value = '';
+  els.grossAmount.value = '';
+  els.fuelAmount.value = '0';
+  els.rideCount.value = '0';
+  els.refueled.checked = false;
+  els.notes.value = '';
+  els.finishDialog.showModal();
+}
+
+async function finishDay(event) {
+  event.preventDefault();
+  if (!currentUser || !supabase || !activeSession) return;
+  const endAt = new Date();
+  const entry = {
+    user_id: currentUser.id,
+    work_date: activeSession.date,
+    start_time: new Date(activeSession.startAt).toISOString(),
+    end_time: endAt.toISOString(),
+    drive_seconds: Math.floor(getElapsedMs() / 1000),
+    start_km: Number(activeSession.startKm),
+    end_km: Number(els.endKm.value),
+    gross_amount: Number(els.grossAmount.value),
+    fuel_amount: Number(els.fuelAmount.value),
+    ride_count: Number(els.rideCount.value),
+    refueled: els.refueled.checked,
+    notes: els.notes.value.trim()
+  };
+  const { error } = await supabase.from('work_days').insert(entry);
+  if (error) return alert('Erro ao salvar no Supabase: ' + error.message);
+  activeSession = null;
+  persistActiveSession();
+  els.finishDialog.close();
+  await loadEntries();
+  renderSession();
+}
+
+async function loadEntries() {
+  const { data, error } = await supabase.from('work_days').select('*').order('work_date', { ascending: false }).order('start_time', { ascending: false });
+  if (error) return alert('Erro ao carregar dias: ' + error.message);
+  entries = data || [];
+  refreshDashboard();
+}
+
+function getFilteredEntries() {
+  const type = els.periodType.value;
+  const now = new Date();
+  let from = null;
+  let to = null;
+  if (type === 'week') {
+    const day = now.getDay();
+    const diff = (day === 0 ? 6 : day - 1);
+    from = new Date(now); from.setDate(now.getDate() - diff); from.setHours(0,0,0,0);
+    to = new Date(from); to.setDate(from.getDate() + 6); to.setHours(23,59,59,999);
+  } else if (type === 'month') {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = new Date(now.getFullYear(), now.getMonth()+1, 0, 23,59,59,999);
+  } else if (type === 'year') {
+    from = new Date(now.getFullYear(), 0, 1);
+    to = new Date(now.getFullYear(), 11, 31, 23,59,59,999);
+  } else {
+    els.customRange.classList.remove('hidden');
+    if (!els.fromDate.value || !els.toDate.value) return [];
+    from = new Date(els.fromDate.value + 'T00:00:00');
+    to = new Date(els.toDate.value + 'T23:59:59');
+  }
+  if (type !== 'custom') els.customRange.classList.add('hidden');
+  return entries.filter((item) => {
+    const d = new Date(item.work_date + 'T12:00:00');
+    return d >= from && d <= to;
+  });
+}
+
+function refreshDashboard() {
+  const filtered = getFilteredEntries();
+  const gross = filtered.reduce((sum, item) => sum + Number(item.gross_amount || 0), 0);
+  const fuel = filtered.reduce((sum, item) => sum + Number(item.fuel_amount || 0), 0);
+  const secs = filtered.reduce((sum, item) => sum + Number(item.drive_seconds || 0), 0);
+  els.grossTotal.textContent = money(gross);
+  els.fuelTotal.textContent = money(fuel);
+  els.netTotal.textContent = money(gross - fuel);
+  els.hoursTotal.textContent = formatHoursMinutes(secs);
+  renderChart(filtered);
   renderHistory();
-  persist();
 }
 
-function sortSessions() {
-  state.sessions.sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime());
-}
-
-function renderStartArea() {
-  if (!state.activeSession) {
-    els.startArea.innerHTML = `
-      <div class="form-grid">
-        <label>
-          <span>Quilometragem atual do carro</span>
-          <input id="startKmInput" inputmode="decimal" placeholder="Ex: 125430" />
-        </label>
-        <div class="inline-buttons">
-          <button class="primary-button" id="startWorkBtn">INICIAR</button>
-        </div>
-      </div>
-    `;
-    document.getElementById('startWorkBtn').addEventListener('click', () => {
-      const startKm = parseNumber(document.getElementById('startKmInput').value);
-      if (!isFinite(startKm) || startKm < 0) {
-        alert('Digite a quilometragem atual corretamente.');
-        return;
-      }
-      state.activeSession = {
-        startedAt: new Date().toISOString(),
-        startKm,
-        currentStatus: 'running',
-        pausedAt: null,
-        pauses: [],
-        totalPausedMs: 0,
-      };
-      render();
-    });
-    return;
-  }
-
-  const activeDriveMs = getActiveDriveMs(state.activeSession);
-  els.startArea.innerHTML = `
-    <div>
-      <p>Início: ${dateTimeFormat(state.activeSession.startedAt)}</p>
-      <p>KM inicial: ${numberFormat(state.activeSession.startKm)}</p>
-      <p>Status: <strong>${state.activeSession.currentStatus === 'running' ? 'Trabalhando' : 'Pausado'}</strong></p>
-    </div>
-    <div class="live-metrics">
-      <div class="live-box">
-        <span>Tempo ao volante</span>
-        <strong>${formatDuration(activeDriveMs)}</strong>
-      </div>
-      <div class="inline-buttons">
-        ${state.activeSession.currentStatus === 'running'
-          ? '<button class="secondary-button" id="pauseBtn">Pausar</button>'
-          : '<button class="secondary-button" id="resumeBtn">Continuar trabalho</button>'}
-        <button class="primary-button" id="finishBtn">Finalizar o dia</button>
-      </div>
-    </div>
-  `;
-
-  const pauseBtn = document.getElementById('pauseBtn');
-  const resumeBtn = document.getElementById('resumeBtn');
-  const finishBtn = document.getElementById('finishBtn');
-
-  if (pauseBtn) pauseBtn.addEventListener('click', pauseWork);
-  if (resumeBtn) resumeBtn.addEventListener('click', resumeWork);
-  if (finishBtn) finishBtn.addEventListener('click', () => {
-    closeEditPanel();
-    els.finishPanel.classList.remove('hidden');
+function renderChart(filtered) {
+  const grouped = [...filtered].sort((a,b) => a.work_date.localeCompare(b.work_date));
+  const labels = grouped.map(item => formatDate(item.work_date));
+  const grossData = grouped.map(item => Number(item.gross_amount || 0));
+  const fuelData = grouped.map(item => Number(item.fuel_amount || 0));
+  const netData = grouped.map(item => Number(item.gross_amount || 0) - Number(item.fuel_amount || 0));
+  if (chart) chart.destroy();
+  chart = new Chart(els.chartCanvas, {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Bruto', data: grossData },
+      { label: 'Combustível', data: fuelData },
+      { label: 'Líquido', data: netData }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false }
   });
-}
-
-function pauseWork() {
-  if (!state.activeSession || state.activeSession.currentStatus === 'paused') return;
-  state.activeSession.currentStatus = 'paused';
-  state.activeSession.pausedAt = new Date().toISOString();
-  render();
-}
-
-function resumeWork() {
-  if (!state.activeSession || state.activeSession.currentStatus !== 'paused' || !state.activeSession.pausedAt) return;
-  const pauseStart = new Date(state.activeSession.pausedAt).getTime();
-  const pauseEnd = Date.now();
-  state.activeSession.totalPausedMs += pauseEnd - pauseStart;
-  state.activeSession.pauses.push({
-    startedAt: new Date(pauseStart).toISOString(),
-    endedAt: new Date(pauseEnd).toISOString(),
-  });
-  state.activeSession.currentStatus = 'running';
-  state.activeSession.pausedAt = null;
-  render();
-}
-
-function saveDay() {
-  if (!state.activeSession) return;
-
-  const endKm = parseNumber(els.endKm.value);
-  const grossEarnings = parseNumber(els.grossEarnings.value);
-  const fuelCost = parseNumber(els.fuelCost.value);
-  const rides = parseNumber(els.rides.value);
-  const notes = els.notes.value.trim();
-
-  if (!isFinite(endKm) || endKm < state.activeSession.startKm) {
-    alert('A quilometragem final precisa ser maior ou igual à inicial.');
-    return;
-  }
-  if (!isFinite(grossEarnings) || grossEarnings < 0) {
-    alert('Digite o faturamento bruto do dia.');
-    return;
-  }
-  if (!isFinite(fuelCost) || fuelCost < 0) {
-    alert('Digite o gasto com combustível. Se não abasteceu, use 0.');
-    return;
-  }
-  if (!isFinite(rides) || rides < 0) {
-    alert('Digite a quantidade de corridas.');
-    return;
-  }
-
-  let totalPausedMs = state.activeSession.totalPausedMs;
-  const pauses = [...state.activeSession.pauses];
-
-  if (state.activeSession.currentStatus === 'paused' && state.activeSession.pausedAt) {
-    const pauseStart = new Date(state.activeSession.pausedAt).getTime();
-    const pauseEnd = Date.now();
-    totalPausedMs += pauseEnd - pauseStart;
-    pauses.push({
-      startedAt: new Date(pauseStart).toISOString(),
-      endedAt: new Date(pauseEnd).toISOString(),
-    });
-  }
-
-  const endedAt = new Date().toISOString();
-  const activeDriveMs = Math.max(0, new Date(endedAt).getTime() - new Date(state.activeSession.startedAt).getTime() - totalPausedMs);
-
-  state.sessions.unshift({
-    id: self.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    startedAt: state.activeSession.startedAt,
-    endedAt,
-    startKm: state.activeSession.startKm,
-    endKm,
-    grossEarnings,
-    fuelCost,
-    rides,
-    notes,
-    pauses,
-    activeDriveMs,
-  });
-
-  state.activeSession = null;
-  closeFinishPanel();
-
-  const date = toDateInput(new Date(endedAt));
-  state.filters.mode = 'range';
-  state.filters.rangeStart = date;
-  state.filters.rangeEnd = date;
-  els.filterMode.value = 'range';
-  render();
-}
-
-function renderSummary() {
-  const filtered = getFilteredSessions();
-  const summary = summarizeSessions(filtered);
-  els.summaryCards.innerHTML = `
-    <article class="metric-card"><span>Faturamento bruto</span><strong>${currency(summary.gross)}</strong></article>
-    <article class="metric-card"><span>Combustível</span><strong>${currency(summary.fuel)}</strong></article>
-    <article class="metric-card"><span>Lucro líquido</span><strong>${currency(summary.net)}</strong></article>
-    <article class="metric-card"><span>Tempo ao volante</span><strong>${formatDuration(summary.driveMs)}</strong></article>
-    <article class="metric-card"><span>Quilômetros rodados</span><strong>${numberFormat(summary.km)} km</strong></article>
-    <article class="metric-card"><span>Corridas</span><strong>${summary.rides}</strong></article>
-  `;
-
-  const chartData = buildChartData(filtered);
-  if (!chartData.length) {
-    els.barsArea.innerHTML = '<div class="empty">Nenhum dia encontrado nesse período.</div>';
-    return;
-  }
-
-  const maxValue = Math.max(1, ...chartData.flatMap(item => [item.gross, item.fuel, Math.max(0, item.net)]));
-  els.barsArea.innerHTML = chartData.map(item => `
-    <div class="bar-group">
-      <div class="bar-stack">
-        <div class="bar gross" style="height:${(item.gross / maxValue) * 180}px" title="Faturamento: ${item.gross}"></div>
-        <div class="bar fuel" style="height:${(item.fuel / maxValue) * 180}px" title="Combustível: ${item.fuel}"></div>
-        <div class="bar net" style="height:${(Math.max(0, item.net) / maxValue) * 180}px" title="Líquido: ${item.net}"></div>
-      </div>
-      <span class="bar-label">${item.label}</span>
-    </div>
-  `).join('');
-}
-
-function renderLatestDay() {
-  const latest = state.sessions[0];
-  if (!latest) {
-    els.latestPanel.innerHTML = '<p class="eyebrow">Último dia salvo</p><h2>Ainda não existe nenhum dia salvo</h2>';
-    return;
-  }
-  els.latestPanel.innerHTML = `
-    <p class="eyebrow">Último dia salvo</p>
-    <h2>${dateFormat(latest.endedAt)}</h2>
-    <div class="cards-grid">
-      <article class="metric-card"><span>Bruto</span><strong>${currency(latest.grossEarnings)}</strong></article>
-      <article class="metric-card"><span>Combustível</span><strong>${currency(latest.fuelCost)}</strong></article>
-      <article class="metric-card"><span>Líquido</span><strong>${currency(latest.grossEarnings - latest.fuelCost)}</strong></article>
-      <article class="metric-card"><span>Tempo</span><strong>${formatDuration(latest.activeDriveMs || 0)}</strong></article>
-    </div>
-  `;
 }
 
 function renderHistory() {
-  if (!state.sessions.length) {
-    els.historyList.innerHTML = '<div class="empty">Você ainda não salvou nenhum dia.</div>';
-    return;
-  }
-  els.historyList.innerHTML = state.sessions.map(session => `
-    <article class="history-item">
-      <div>
-        <strong>${dateFormat(session.endedAt)}</strong>
-        <p>${timeFormat(session.startedAt)} até ${timeFormat(session.endedAt)} • ${session.rides} corridas • ${numberFormat(session.endKm - session.startKm)} km</p>
-        ${session.notes ? `<p class="notes-text">Obs.: ${escapeHtml(session.notes)}</p>` : ''}
-      </div>
-      <div class="history-values">
-        <span>Bruto: ${currency(session.grossEarnings)}</span>
-        <span>Combustível: ${currency(session.fuelCost)}</span>
-        <span>Líquido: ${currency(session.grossEarnings - session.fuelCost)}</span>
-        <span>Tempo: ${formatDuration(session.activeDriveMs || 0)}</span>
-        <div class="inline-buttons history-actions">
-          <button class="secondary-button small-button" data-edit-id="${session.id}">Editar</button>
-          <button class="ghost-button small-button" data-delete-id="${session.id}">Excluir</button>
+  els.historyEmpty.classList.toggle('hidden', entries.length > 0);
+  els.historyList.innerHTML = '';
+  for (const item of entries) {
+    const div = document.createElement('article');
+    div.className = 'history-item';
+    div.innerHTML = `
+      <div class="history-top">
+        <div>
+          <strong>${formatDate(item.work_date)}</strong>
+          <div class="muted">${timeOnly(item.start_time)} até ${timeOnly(item.end_time)}</div>
+        </div>
+        <div class="row wrap">
+          <button class="secondary" data-edit="${item.id}">Editar</button>
         </div>
       </div>
-    </article>
-  `).join('');
-
-  document.querySelectorAll('[data-edit-id]').forEach(button => {
-    button.addEventListener('click', () => openEditPanel(button.dataset.editId));
-  });
-  document.querySelectorAll('[data-delete-id]').forEach(button => {
-    button.addEventListener('click', () => deleteSession(button.dataset.deleteId));
-  });
+      <div class="history-stats">
+        <div class="history-stat">Bruto<br><strong>${money(item.gross_amount)}</strong></div>
+        <div class="history-stat">Combustível<br><strong>${money(item.fuel_amount)}</strong></div>
+        <div class="history-stat">Líquido<br><strong>${money(Number(item.gross_amount)-Number(item.fuel_amount))}</strong></div>
+        <div class="history-stat">Tempo<br><strong>${formatDuration(Number(item.drive_seconds||0)*1000)}</strong></div>
+      </div>
+      <div class="history-stats">
+        <div class="history-stat">KM<br><strong>${Number(item.end_km) - Number(item.start_km)} km</strong></div>
+        <div class="history-stat">Corridas<br><strong>${item.ride_count}</strong></div>
+        <div class="history-stat">Abasteceu<br><strong>${item.refueled ? 'Sim' : 'Não'}</strong></div>
+        <div class="history-stat">Obs.<br><strong>${escapeHtml(item.notes || '-')}</strong></div>
+      </div>`;
+    div.querySelector('[data-edit]').addEventListener('click', () => openEdit(item.id));
+    els.historyList.appendChild(div);
+  }
 }
 
-function openEditPanel(sessionId) {
-  const session = state.sessions.find(item => item.id === sessionId);
-  if (!session) return;
-  state.editingSessionId = sessionId;
-  const started = new Date(session.startedAt);
-  const ended = new Date(session.endedAt);
-  els.editDate.value = toDateInput(ended);
-  els.editStartTime.value = toTimeInput(started);
-  els.editEndTime.value = toTimeInput(ended);
-  els.editStartKm.value = String(session.startKm ?? '');
-  els.editEndKm.value = String(session.endKm ?? '');
-  els.editGrossEarnings.value = String(session.grossEarnings ?? '');
-  els.editFuelCost.value = String(session.fuelCost ?? '');
-  els.editRides.value = String(session.rides ?? '');
-  const driveMs = session.activeDriveMs || 0;
-  els.editDriveHours.value = String(Math.floor(driveMs / 3600000));
-  els.editDriveMinutes.value = String(Math.round((driveMs % 3600000) / 60000));
-  els.editNotes.value = session.notes || '';
-  closeFinishPanel();
-  els.editPanel.classList.remove('hidden');
-  els.editPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+function openEdit(id) {
+  const item = entries.find(x => x.id === id);
+  if (!item) return;
+  els.editId.value = item.id;
+  els.editDate.value = item.work_date;
+  els.editStartTime.value = timeInputValue(item.start_time);
+  els.editEndTime.value = timeInputValue(item.end_time);
+  els.editDriveTime.value = secondsToHms(item.drive_seconds || 0);
+  els.editStartKm.value = item.start_km;
+  els.editEndKm.value = item.end_km;
+  els.editGross.value = item.gross_amount;
+  els.editFuel.value = item.fuel_amount;
+  els.editRides.value = item.ride_count;
+  els.editRefueled.checked = !!item.refueled;
+  els.editNotes.value = item.notes || '';
+  els.editDialog.showModal();
 }
 
-function closeEditPanel() {
-  state.editingSessionId = null;
-  els.editPanel.classList.add('hidden');
-}
-
-function updateSession() {
-  if (!state.editingSessionId) return;
-  const session = state.sessions.find(item => item.id === state.editingSessionId);
-  if (!session) return;
-
-  const date = els.editDate.value;
-  const startTime = els.editStartTime.value;
-  const endTime = els.editEndTime.value;
-  const startKm = parseNumber(els.editStartKm.value);
-  const endKm = parseNumber(els.editEndKm.value);
-  const grossEarnings = parseNumber(els.editGrossEarnings.value);
-  const fuelCost = parseNumber(els.editFuelCost.value);
-  const rides = parseNumber(els.editRides.value);
-  const driveHours = parseInt(els.editDriveHours.value || '0', 10);
-  const driveMinutes = parseInt(els.editDriveMinutes.value || '0', 10);
-  const notes = els.editNotes.value.trim();
-
-  if (!date || !startTime || !endTime) {
-    alert('Preencha a data e os horários.');
-    return;
-  }
-  if (!isFinite(startKm) || startKm < 0) {
-    alert('Digite um KM inicial válido.');
-    return;
-  }
-  if (!isFinite(endKm) || endKm < startKm) {
-    alert('O KM final precisa ser maior ou igual ao inicial.');
-    return;
-  }
-  if (!isFinite(grossEarnings) || grossEarnings < 0 || !isFinite(fuelCost) || fuelCost < 0 || !isFinite(rides) || rides < 0) {
-    alert('Revise faturamento, combustível e corridas.');
-    return;
-  }
-  if (!Number.isFinite(driveHours) || driveHours < 0 || !Number.isFinite(driveMinutes) || driveMinutes < 0 || driveMinutes > 59) {
-    alert('Revise o tempo ao volante.');
-    return;
-  }
-
-  const startedAt = new Date(`${date}T${startTime}:00`);
-  let endedAt = new Date(`${date}T${endTime}:00`);
-  if (endedAt.getTime() < startedAt.getTime()) {
-    endedAt = new Date(endedAt.getTime() + 24 * 60 * 60 * 1000);
-  }
-
-  session.startedAt = startedAt.toISOString();
-  session.endedAt = endedAt.toISOString();
-  session.startKm = startKm;
-  session.endKm = endKm;
-  session.grossEarnings = grossEarnings;
-  session.fuelCost = fuelCost;
-  session.rides = rides;
-  session.notes = notes;
-  session.activeDriveMs = ((driveHours * 60) + driveMinutes) * 60000;
-  closeEditPanel();
-  render();
-}
-
-function deleteSession(sessionId) {
-  const session = state.sessions.find(item => item.id === sessionId);
-  if (!session) return;
-  const confirmed = confirm(`Excluir o dia ${dateFormat(session.endedAt)}?`);
-  if (!confirmed) return;
-  state.sessions = state.sessions.filter(item => item.id !== sessionId);
-  if (state.editingSessionId === sessionId) closeEditPanel();
-  render();
-}
-
-function closeFinishPanel() {
-  els.finishPanel.classList.add('hidden');
-  els.endKm.value = '';
-  els.grossEarnings.value = '';
-  els.fuelCost.value = '';
-  els.rides.value = '';
-  els.notes.value = '';
-}
-
-function getDefaultFilters() {
-  const range = getWeekRange();
-  return {
-    mode: 'week',
-    rangeStart: toDateInput(range.start),
-    rangeEnd: toDateInput(range.end),
+async function saveEdit(event) {
+  event.preventDefault();
+  const id = els.editId.value;
+  const payload = {
+    work_date: els.editDate.value,
+    start_time: combineDateAndTime(els.editDate.value, els.editStartTime.value),
+    end_time: combineDateAndTime(els.editDate.value, els.editEndTime.value),
+    drive_seconds: hmsToSeconds(els.editDriveTime.value),
+    start_km: Number(els.editStartKm.value),
+    end_km: Number(els.editEndKm.value),
+    gross_amount: Number(els.editGross.value),
+    fuel_amount: Number(els.editFuel.value),
+    ride_count: Number(els.editRides.value),
+    refueled: els.editRefueled.checked,
+    notes: els.editNotes.value.trim()
   };
+  const { error } = await supabase.from('work_days').update(payload).eq('id', id);
+  if (error) return alert('Erro ao atualizar: ' + error.message);
+  els.editDialog.close();
+  await loadEntries();
 }
 
-function toggleRangeInputs() {
-  const isRange = state.filters.mode === 'range';
-  els.rangeStart.classList.toggle('hidden', !isRange);
-  els.rangeEnd.classList.toggle('hidden', !isRange);
-  els.rangeStart.value = state.filters.rangeStart;
-  els.rangeEnd.value = state.filters.rangeEnd;
-  els.filterMode.value = state.filters.mode;
+async function deleteEntry() {
+  const id = els.editId.value;
+  if (!confirm('Excluir este dia?')) return;
+  const { error } = await supabase.from('work_days').delete().eq('id', id);
+  if (error) return alert('Erro ao excluir: ' + error.message);
+  els.editDialog.close();
+  await loadEntries();
 }
 
-function getFilteredSessions() {
-  const { start, end } = resolveFilterRange(state.filters);
-  return state.sessions.filter(session => {
-    const time = new Date(session.endedAt).getTime();
-    return time >= start.getTime() && time <= end.getTime();
-  });
+async function syncEntries() { if (currentUser) await loadEntries(); }
+
+function exportJson() {
+  const blob = new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `motorista-pro-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-function resolveFilterRange(filters) {
-  if (filters.mode === 'week') return getWeekRange();
-  if (filters.mode === 'month') return getMonthRange();
-  if (filters.mode === 'year') return getYearRange();
-  return {
-    start: new Date(`${filters.rangeStart}T00:00:00`),
-    end: new Date(`${filters.rangeEnd}T23:59:59.999`),
-  };
+async function importJson(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!Array.isArray(parsed)) throw new Error('Arquivo inválido.');
+    const payload = parsed.map(item => ({
+      user_id: currentUser.id,
+      work_date: item.work_date,
+      start_time: item.start_time,
+      end_time: item.end_time,
+      drive_seconds: Number(item.drive_seconds || 0),
+      start_km: Number(item.start_km || 0),
+      end_km: Number(item.end_km || 0),
+      gross_amount: Number(item.gross_amount || 0),
+      fuel_amount: Number(item.fuel_amount || 0),
+      ride_count: Number(item.ride_count || 0),
+      refueled: !!item.refueled,
+      notes: item.notes || ''
+    }));
+    const { error } = await supabase.from('work_days').insert(payload);
+    if (error) throw error;
+    alert('Importação concluída.');
+    await loadEntries();
+  } catch (err) {
+    alert('Erro ao importar: ' + err.message);
+  } finally {
+    event.target.value = '';
+  }
 }
 
-function getWeekRange() {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const start = new Date(now);
-  start.setDate(now.getDate() + diff);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
-
-function getMonthRange() {
-  const now = new Date();
-  return {
-    start: new Date(now.getFullYear(), now.getMonth(), 1),
-    end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
-  };
-}
-
-function getYearRange() {
-  const now = new Date();
-  return {
-    start: new Date(now.getFullYear(), 0, 1),
-    end: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999),
-  };
-}
-
-function summarizeSessions(sessions) {
-  return sessions.reduce((acc, session) => {
-    acc.gross += session.grossEarnings;
-    acc.fuel += session.fuelCost;
-    acc.net += session.grossEarnings - session.fuelCost;
-    acc.rides += session.rides;
-    acc.km += Math.max(0, session.endKm - session.startKm);
-    acc.driveMs += session.activeDriveMs || 0;
-    return acc;
-  }, { gross: 0, fuel: 0, net: 0, rides: 0, km: 0, driveMs: 0 });
-}
-
-function buildChartData(sessions) {
-  const grouped = {};
-  sessions.forEach(session => {
-    const date = new Date(session.endedAt);
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    if (!grouped[key]) {
-      grouped[key] = {
-        label: new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(date),
-        gross: 0,
-        fuel: 0,
-        net: 0,
-      };
-    }
-    grouped[key].gross += session.grossEarnings;
-    grouped[key].fuel += session.fuelCost;
-    grouped[key].net += session.grossEarnings - session.fuelCost;
-  });
-  return Object.keys(grouped).sort().map(key => grouped[key]);
-}
-
-function getActiveDriveMs(activeSession) {
-  const startMs = new Date(activeSession.startedAt).getTime();
-  const pausedCurrent = activeSession.currentStatus === 'paused' && activeSession.pausedAt
-    ? Date.now() - new Date(activeSession.pausedAt).getTime()
-    : 0;
-  return Math.max(0, Date.now() - startMs - activeSession.totalPausedMs - pausedCurrent);
-}
-
-function parseNumber(value) {
-  return Number(String(value).trim().replace(/\./g, '').replace(',', '.'));
-}
-
-function currency(value) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
-}
-
-function numberFormat(value) {
-  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(value || 0);
-}
-
-function dateFormat(value) {
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value));
-}
-
-function timeFormat(value) {
-  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
-}
-
-function dateTimeFormat(value) {
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  }).format(new Date(value));
-}
-
+function money(value) { return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function formatDate(value) { return new Date(value + 'T12:00:00').toLocaleDateString('pt-BR'); }
+function timeOnly(value) { return new Date(value).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); }
+function timeInputValue(value) { return new Date(value).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 function formatDuration(ms) {
-  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}min`;
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return secondsToHms(total);
 }
-
-function toDateInput(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+function secondsToHms(total) {
+  const h = String(Math.floor(total / 3600)).padStart(2,'0');
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2,'0');
+  const s = String(total % 60).padStart(2,'0');
+  return `${h}:${m}:${s}`;
 }
-
-function toTimeInput(date) {
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+function hmsToSeconds(text) {
+  const [h='0',m='0',s='0'] = String(text).split(':');
+  return Number(h)*3600 + Number(m)*60 + Number(s);
 }
-
+function formatHoursMinutes(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+function combineDateAndTime(date, time) { return new Date(`${date}T${time}:00`).toISOString(); }
 function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+  const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  return String(text).replace(/[&<>"']/g, c => map[c]);
 }
+
+boot();

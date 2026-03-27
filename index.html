@@ -1,166 +1,227 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#101828" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="Motorista Pro" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111827" />
   <title>Motorista Pro</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="page">
-    <section class="hero panel">
+  <div class="app-shell">
+    <header class="topbar">
       <div>
-        <p class="eyebrow">Controle de Motorista</p>
-        <h1>Seu painel de faturamento da Uber</h1>
-        <p class="hero-text">
-          Inicie o dia, pause quando precisar, finalize e acompanhe faturamento bruto,
-          combustível, lucro líquido, corridas, quilômetros rodados e tempo ao volante.
-        </p>
+        <h1>Motorista Pro</h1>
+        <p class="muted">Controle de faturamento, combustível e tempo ao volante</p>
       </div>
-      <div class="install-card">
-        <strong>No iPhone</strong>
-        <p>No Safari, toque em Compartilhar → <b>Adicionar à Tela de Início</b>. Assim ele abre igual app.</p>
+      <div class="topbar-actions">
+        <button id="openSettingsBtn" class="ghost">Supabase</button>
+        <button id="logoutBtn" class="ghost hidden">Sair</button>
       </div>
+    </header>
+
+    <section id="authCard" class="card auth-card hidden">
+      <h2>Entrar</h2>
+      <p class="muted">Crie sua conta ou entre para não perder seus dados.</p>
+      <form id="authForm" class="stack gap-12">
+        <input id="authEmail" type="email" placeholder="Seu e-mail" required />
+        <input id="authPassword" type="password" placeholder="Sua senha" required minlength="6" />
+        <div class="row">
+          <button type="submit">Entrar</button>
+          <button type="button" id="signUpBtn" class="secondary">Criar conta</button>
+        </div>
+      </form>
+      <p class="tiny muted">Depois de criar a conta, confira seu e-mail se a confirmação estiver ativada no Supabase.</p>
     </section>
 
-    <section class="panel action-panel">
-      <div>
-        <h2>Começar o trabalho</h2>
-        <p>Ao iniciar, o app começa a contar o seu tempo ao volante.</p>
-      </div>
-      <div id="start-area"></div>
+    <section id="setupWarning" class="card warning-card hidden">
+      <h2>Configuração pendente</h2>
+      <p>Abra <strong>Supabase</strong> e cole sua URL e sua chave pública Anon em <strong>Supabase</strong>.</p>
     </section>
 
-    <section class="panel hidden" id="finish-panel">
-      <h2>Fechamento do dia</h2>
-      <div class="form-grid">
-        <label>
-          <span>Quilometragem atual do carro</span>
-          <input id="endKm" inputmode="decimal" placeholder="Ex: 125540" />
-        </label>
-        <label>
-          <span>Faturamento bruto do dia</span>
-          <input id="grossEarnings" inputmode="decimal" placeholder="Ex: 420,50" />
-        </label>
-        <label>
-          <span>Colocou combustível? Quanto gastou?</span>
-          <input id="fuelCost" inputmode="decimal" placeholder="Use 0 se não abasteceu" />
-        </label>
-        <label>
-          <span>Quantas corridas você fez?</span>
-          <input id="rides" inputmode="numeric" />
-        </label>
-        <label>
-          <span>Observações do dia</span>
-          <textarea id="notes" rows="3" placeholder="Opcional"></textarea>
-        </label>
-        <div class="inline-buttons">
-          <button class="primary-button" id="save-day-btn">Salvar e fechar o dia</button>
-          <button class="ghost-button" id="cancel-finish-btn">Voltar</button>
+    <main id="appContent" class="hidden">
+      <section class="grid two">
+        <article class="card">
+          <div class="section-head">
+            <h2>Hoje</h2>
+            <span id="todayStatus" class="badge">Sem corrida ativa</span>
+          </div>
+          <form id="startForm" class="stack gap-12">
+            <label>
+              Data do dia
+              <input id="workDate" type="date" required />
+            </label>
+            <label>
+              KM atual do carro
+              <input id="startKm" type="number" step="0.1" min="0" required />
+            </label>
+            <button type="submit">Iniciar</button>
+          </form>
+
+          <div id="sessionPanel" class="session-panel hidden">
+            <div class="metric-grid">
+              <div class="metric">
+                <span class="metric-label">Tempo ao volante</span>
+                <strong id="elapsedText">00:00:00</strong>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Início</span>
+                <strong id="startAtText">-</strong>
+              </div>
+            </div>
+            <div class="row wrap">
+              <button id="pauseBtn" type="button" class="secondary">Pausar</button>
+              <button id="resumeBtn" type="button" class="secondary hidden">Continuar</button>
+              <button id="finishOpenBtn" type="button" class="danger">Finalizar o dia</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="section-head">
+            <h2>Resumo rápido</h2>
+            <span class="muted">Período selecionado</span>
+          </div>
+          <form id="filtersForm" class="stack gap-12">
+            <label>
+              Período
+              <select id="periodType">
+                <option value="week">Semana</option>
+                <option value="month">Mês</option>
+                <option value="year">Ano</option>
+                <option value="custom">Personalizado</option>
+              </select>
+            </label>
+            <div id="customRange" class="grid two hidden">
+              <label>
+                De
+                <input id="fromDate" type="date" />
+              </label>
+              <label>
+                Até
+                <input id="toDate" type="date" />
+              </label>
+            </div>
+          </form>
+          <div class="metric-grid">
+            <div class="metric">
+              <span class="metric-label">Bruto</span>
+              <strong id="grossTotal">R$ 0,00</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Combustível</span>
+              <strong id="fuelTotal">R$ 0,00</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Líquido</span>
+              <strong id="netTotal">R$ 0,00</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Horas</span>
+              <strong id="hoursTotal">00:00</strong>
+            </div>
+          </div>
+          <canvas id="chart" height="220"></canvas>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Histórico</h2>
+          <div class="row wrap">
+            <button id="syncBtn" class="secondary" type="button">Sincronizar</button>
+            <button id="exportBtn" class="secondary" type="button">Exportar JSON</button>
+            <label class="file-btn secondary">
+              Importar JSON
+              <input id="importInput" type="file" accept="application/json" hidden />
+            </label>
+          </div>
         </div>
+        <div id="historyEmpty" class="muted">Nenhum dia salvo ainda.</div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="finishDialog">
+    <form id="finishForm" class="stack gap-12 dialog-form" method="dialog">
+      <div class="section-head">
+        <h2>Finalizar o dia</h2>
+        <button type="button" class="ghost" id="closeFinishDialog">Fechar</button>
       </div>
-    </section>
-
-    <section class="panel hidden" id="edit-panel">
-      <h2>Editar dia salvo</h2>
-      <div class="form-grid">
-        <label>
-          <span>Data</span>
-          <input id="editDate" type="date" />
-        </label>
-        <label>
-          <span>Hora de início</span>
-          <input id="editStartTime" type="time" />
-        </label>
-        <label>
-          <span>Hora de fim</span>
-          <input id="editEndTime" type="time" />
-        </label>
-        <label>
-          <span>KM inicial</span>
-          <input id="editStartKm" inputmode="decimal" />
-        </label>
-        <label>
-          <span>KM final</span>
-          <input id="editEndKm" inputmode="decimal" />
-        </label>
-        <label>
-          <span>Faturamento bruto</span>
-          <input id="editGrossEarnings" inputmode="decimal" />
-        </label>
-        <label>
-          <span>Combustível</span>
-          <input id="editFuelCost" inputmode="decimal" />
-        </label>
-        <label>
-          <span>Corridas</span>
-          <input id="editRides" inputmode="numeric" />
-        </label>
-        <div class="inline-buttons compact-row">
-          <label>
-            <span>Tempo ao volante - horas</span>
-            <input id="editDriveHours" inputmode="numeric" />
-          </label>
-          <label>
-            <span>Tempo ao volante - minutos</span>
-            <input id="editDriveMinutes" inputmode="numeric" />
-          </label>
-        </div>
-        <label>
-          <span>Observações</span>
-          <textarea id="editNotes" rows="3"></textarea>
-        </label>
-        <div class="inline-buttons">
-          <button class="primary-button" id="update-day-btn">Salvar alterações</button>
-          <button class="ghost-button" id="cancel-edit-btn">Cancelar</button>
-        </div>
+      <label>
+        KM atual do carro
+        <input id="endKm" type="number" step="0.1" min="0" required />
+      </label>
+      <label>
+        Faturamento bruto do dia
+        <input id="grossAmount" type="number" step="0.01" min="0" required />
+      </label>
+      <label>
+        Gasto com combustível do dia
+        <input id="fuelAmount" type="number" step="0.01" min="0" value="0" required />
+      </label>
+      <label>
+        Quantas corridas você fez?
+        <input id="rideCount" type="number" min="0" value="0" required />
+      </label>
+      <label class="checkbox-line">
+        <input id="refueled" type="checkbox" />
+        Colocou combustível hoje?
+      </label>
+      <label>
+        Observações
+        <textarea id="notes" rows="3" placeholder="Ex.: chuva forte, almoço longo, promoção da Uber..."></textarea>
+      </label>
+      <div class="row wrap">
+        <button type="submit">Salvar dia</button>
       </div>
-    </section>
+    </form>
+  </dialog>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <p class="eyebrow">Resumo</p>
-          <h2>Período selecionado</h2>
-        </div>
-        <div class="filters">
-          <select id="filterMode">
-            <option value="week">Semana</option>
-            <option value="month">Mês</option>
-            <option value="year">Ano</option>
-            <option value="range">Data personalizada</option>
-          </select>
-          <input type="date" id="rangeStart" class="hidden" />
-          <input type="date" id="rangeEnd" class="hidden" />
-        </div>
+  <dialog id="editDialog">
+    <form id="editForm" class="stack gap-12 dialog-form" method="dialog">
+      <div class="section-head">
+        <h2>Editar lançamento</h2>
+        <button type="button" class="ghost" id="closeEditDialog">Fechar</button>
       </div>
-      <div class="cards-grid" id="summary-cards"></div>
-      <div class="chart-wrap">
-        <div class="chart-legend">
-          <span><i class="legend gross"></i>Faturamento</span>
-          <span><i class="legend fuel"></i>Combustível</span>
-          <span><i class="legend net"></i>Líquido</span>
-        </div>
-        <div class="bars-area" id="bars-area"></div>
+      <input id="editId" type="hidden" />
+      <label>Data<input id="editDate" type="date" required /></label>
+      <label>Hora início<input id="editStartTime" type="time" required /></label>
+      <label>Hora fim<input id="editEndTime" type="time" required /></label>
+      <label>Tempo ao volante (hh:mm:ss)<input id="editDriveTime" type="text" required /></label>
+      <label>KM inicial<input id="editStartKm" type="number" step="0.1" min="0" required /></label>
+      <label>KM final<input id="editEndKm" type="number" step="0.1" min="0" required /></label>
+      <label>Faturamento bruto<input id="editGross" type="number" step="0.01" min="0" required /></label>
+      <label>Combustível<input id="editFuel" type="number" step="0.01" min="0" required /></label>
+      <label>Corridas<input id="editRides" type="number" min="0" required /></label>
+      <label><input id="editRefueled" type="checkbox" /> Colocou combustível</label>
+      <label>Observações<textarea id="editNotes" rows="3"></textarea></label>
+      <div class="row wrap">
+        <button type="submit">Salvar alterações</button>
+        <button type="button" id="deleteEntryBtn" class="danger">Excluir dia</button>
       </div>
-    </section>
+    </form>
+  </dialog>
 
-    <section class="panel" id="latest-panel"></section>
+  <dialog id="settingsDialog">
+    <form id="settingsForm" class="stack gap-12 dialog-form" method="dialog">
+      <div class="section-head">
+        <h2>Configurar Supabase</h2>
+        <button type="button" class="ghost" id="closeSettingsDialog">Fechar</button>
+      </div>
+      <p class="muted">Cole a URL do projeto e a chave pública Anon. Não use a service_role key.</p>
+      <label>Supabase URL<input id="supabaseUrlInput" type="url" placeholder="https://SEU-PROJETO.supabase.co" required /></label>
+      <label>Anon public key<textarea id="supabaseAnonKeyInput" rows="5" placeholder="eyJ..." required></textarea></label>
+      <div class="row wrap">
+        <button type="submit">Salvar configuração</button>
+      </div>
+    </form>
+  </dialog>
 
-    <section class="panel">
-      <p class="eyebrow">Histórico</p>
-      <h2>Dias salvos</h2>
-      <div class="history-list" id="history-list"></div>
-    </section>
-  </main>
-
-  <script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
