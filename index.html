@@ -2,51 +2,56 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#111827" />
   <title>Motorista Pro</title>
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="app-shell">
-    <header class="topbar">
+    <header class="topbar card">
       <div>
         <h1>Motorista Pro</h1>
-        <p class="muted">Controle de faturamento, combustível e tempo ao volante</p>
+        <p class="muted">Uber: faturamento, combustível, lucro e tempo ao volante</p>
       </div>
-      <div class="topbar-actions">
-        <button id="openSettingsBtn" class="ghost">Supabase</button>
-        <button id="logoutBtn" class="ghost hidden">Sair</button>
+      <div class="row wrap topbar-actions">
+        <button id="openSettingsBtn" class="ghost" type="button">Supabase</button>
+        <button id="logoutBtn" class="ghost hidden" type="button">Sair</button>
       </div>
     </header>
 
-    <section id="authCard" class="card auth-card hidden">
-      <h2>Entrar</h2>
-      <p class="muted">Crie sua conta ou entre para não perder seus dados.</p>
-      <form id="authForm" class="stack gap-12">
-        <input id="authEmail" type="email" placeholder="Seu e-mail" required />
-        <input id="authPassword" type="password" placeholder="Sua senha" required minlength="6" />
-        <div class="row">
-          <button type="submit">Entrar</button>
-          <button type="button" id="signUpBtn" class="secondary">Criar conta</button>
-        </div>
-      </form>
-      <p class="tiny muted">Depois de criar a conta, confira seu e-mail se a confirmação estiver ativada no Supabase.</p>
-    </section>
-
     <section id="setupWarning" class="card warning-card hidden">
       <h2>Configuração pendente</h2>
-      <p>Abra <strong>Supabase</strong> e cole sua URL e sua chave pública Anon em <strong>Supabase</strong>.</p>
+      <p>Toque em <strong>Supabase</strong> e cole a URL do projeto e a chave pública <strong>anon</strong>.</p>
     </section>
 
-    <main id="appContent" class="hidden">
+    <section id="authCard" class="card hidden auth-card">
+      <h2>Entrar</h2>
+      <p class="muted">Crie sua conta para não perder seus dados.</p>
+      <form id="authForm" class="stack gap-12">
+        <label>
+          E-mail
+          <input id="authEmail" type="email" placeholder="seuemail@exemplo.com" required />
+        </label>
+        <label>
+          Senha
+          <input id="authPassword" type="password" minlength="6" required />
+        </label>
+        <div class="row wrap">
+          <button type="submit">Entrar</button>
+          <button id="signUpBtn" type="button" class="secondary">Criar conta</button>
+        </div>
+      </form>
+    </section>
+
+    <main id="appContent" class="hidden stack gap-16">
       <section class="grid two">
         <article class="card">
           <div class="section-head">
             <h2>Hoje</h2>
-            <span id="todayStatus" class="badge">Sem corrida ativa</span>
+            <span id="todayStatus" class="badge">Sem dia ativo</span>
           </div>
           <form id="startForm" class="stack gap-12">
             <label>
@@ -61,7 +66,7 @@
           </form>
 
           <div id="sessionPanel" class="session-panel hidden">
-            <div class="metric-grid">
+            <div class="metric-grid compact">
               <div class="metric">
                 <span class="metric-label">Tempo ao volante</span>
                 <strong id="elapsedText">00:00:00</strong>
@@ -81,8 +86,8 @@
 
         <article class="card">
           <div class="section-head">
-            <h2>Resumo rápido</h2>
-            <span class="muted">Período selecionado</span>
+            <h2>Resumo</h2>
+            <span class="muted">Filtro por período</span>
           </div>
           <form id="filtersForm" class="stack gap-12">
             <label>
@@ -105,23 +110,12 @@
               </label>
             </div>
           </form>
+
           <div class="metric-grid">
-            <div class="metric">
-              <span class="metric-label">Bruto</span>
-              <strong id="grossTotal">R$ 0,00</strong>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Combustível</span>
-              <strong id="fuelTotal">R$ 0,00</strong>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Líquido</span>
-              <strong id="netTotal">R$ 0,00</strong>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Horas</span>
-              <strong id="hoursTotal">00:00</strong>
-            </div>
+            <div class="metric"><span class="metric-label">Bruto</span><strong id="grossTotal">R$ 0,00</strong></div>
+            <div class="metric"><span class="metric-label">Combustível</span><strong id="fuelTotal">R$ 0,00</strong></div>
+            <div class="metric"><span class="metric-label">Líquido</span><strong id="netTotal">R$ 0,00</strong></div>
+            <div class="metric"><span class="metric-label">Horas</span><strong id="hoursTotal">00:00</strong></div>
           </div>
           <canvas id="chart" height="220"></canvas>
         </article>
@@ -149,35 +143,15 @@
     <form id="finishForm" class="stack gap-12 dialog-form" method="dialog">
       <div class="section-head">
         <h2>Finalizar o dia</h2>
-        <button type="button" class="ghost" id="closeFinishDialog">Fechar</button>
+        <button id="closeFinishDialog" class="ghost" type="button">Fechar</button>
       </div>
-      <label>
-        KM atual do carro
-        <input id="endKm" type="number" step="0.1" min="0" required />
-      </label>
-      <label>
-        Faturamento bruto do dia
-        <input id="grossAmount" type="number" step="0.01" min="0" required />
-      </label>
-      <label>
-        Gasto com combustível do dia
-        <input id="fuelAmount" type="number" step="0.01" min="0" value="0" required />
-      </label>
-      <label>
-        Quantas corridas você fez?
-        <input id="rideCount" type="number" min="0" value="0" required />
-      </label>
-      <label class="checkbox-line">
-        <input id="refueled" type="checkbox" />
-        Colocou combustível hoje?
-      </label>
-      <label>
-        Observações
-        <textarea id="notes" rows="3" placeholder="Ex.: chuva forte, almoço longo, promoção da Uber..."></textarea>
-      </label>
-      <div class="row wrap">
-        <button type="submit">Salvar dia</button>
-      </div>
+      <label>KM atual do carro<input id="endKm" type="number" step="0.1" min="0" required /></label>
+      <label>Faturamento bruto do dia<input id="grossAmount" type="number" step="0.01" min="0" required /></label>
+      <label>Gasto com combustível do dia<input id="fuelAmount" type="number" step="0.01" min="0" value="0" required /></label>
+      <label>Quantas corridas você fez?<input id="rideCount" type="number" min="0" value="0" required /></label>
+      <label class="checkbox-line"><input id="refueled" type="checkbox" /> Colocou combustível hoje?</label>
+      <label>Observações<textarea id="notes" rows="3" placeholder="Ex.: almoço longo, chuva forte, promoção..."></textarea></label>
+      <button type="submit">Salvar dia</button>
     </form>
   </dialog>
 
@@ -185,7 +159,7 @@
     <form id="editForm" class="stack gap-12 dialog-form" method="dialog">
       <div class="section-head">
         <h2>Editar lançamento</h2>
-        <button type="button" class="ghost" id="closeEditDialog">Fechar</button>
+        <button id="closeEditDialog" class="ghost" type="button">Fechar</button>
       </div>
       <input id="editId" type="hidden" />
       <label>Data<input id="editDate" type="date" required /></label>
@@ -197,11 +171,11 @@
       <label>Faturamento bruto<input id="editGross" type="number" step="0.01" min="0" required /></label>
       <label>Combustível<input id="editFuel" type="number" step="0.01" min="0" required /></label>
       <label>Corridas<input id="editRides" type="number" min="0" required /></label>
-      <label><input id="editRefueled" type="checkbox" /> Colocou combustível</label>
+      <label class="checkbox-line"><input id="editRefueled" type="checkbox" /> Colocou combustível</label>
       <label>Observações<textarea id="editNotes" rows="3"></textarea></label>
       <div class="row wrap">
         <button type="submit">Salvar alterações</button>
-        <button type="button" id="deleteEntryBtn" class="danger">Excluir dia</button>
+        <button id="deleteEntryBtn" type="button" class="danger">Excluir dia</button>
       </div>
     </form>
   </dialog>
@@ -210,18 +184,16 @@
     <form id="settingsForm" class="stack gap-12 dialog-form" method="dialog">
       <div class="section-head">
         <h2>Configurar Supabase</h2>
-        <button type="button" class="ghost" id="closeSettingsDialog">Fechar</button>
+        <button id="closeSettingsDialog" class="ghost" type="button">Fechar</button>
       </div>
-      <p class="muted">Cole a URL do projeto e a chave pública Anon. Não use a service_role key.</p>
-      <label>Supabase URL<input id="supabaseUrlInput" type="url" placeholder="https://SEU-PROJETO.supabase.co" required /></label>
+      <p class="muted">Cole a URL do projeto e a chave pública anon. Não use a service_role.</p>
+      <label>Supabase URL<input id="supabaseUrlInput" type="url" placeholder="https://seu-projeto.supabase.co" required /></label>
       <label>Anon public key<textarea id="supabaseAnonKeyInput" rows="5" placeholder="eyJ..." required></textarea></label>
-      <div class="row wrap">
-        <button type="submit">Salvar configuração</button>
-      </div>
+      <button type="submit">Salvar configuração</button>
     </form>
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
