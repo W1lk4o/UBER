@@ -156,12 +156,60 @@ function setToday() {
 }
 
 function loadActiveSession() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.session) || 'null'); }
-  catch { return null; }
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEYS.session) || 'null');
+    return normalizeActiveSession(raw);
+  } catch {
+    return null;
+  }
 }
 function persistActiveSession() {
   if (!activeSession) localStorage.removeItem(STORAGE_KEYS.session);
   else localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(activeSession));
+}
+
+function normalizeActiveSession(raw) {
+  if (!raw) return null;
+
+  if (raw.sessionStartAt) {
+    return {
+      date: raw.date,
+      startKm: Number(raw.startKm || 0),
+      sessionStartAt: raw.sessionStartAt,
+      status: raw.status === 'paused' ? 'paused' : 'running',
+      pauses: Array.isArray(raw.pauses) ? raw.pauses : [],
+      currentPauseStartedAt: raw.currentPauseStartedAt || null
+    };
+  }
+
+  if (raw.startAt) {
+    const migrated = {
+      date: raw.date,
+      startKm: Number(raw.startKm || 0),
+      sessionStartAt: raw.startAt,
+      status: raw.status === 'paused' ? 'paused' : 'running',
+      pauses: [],
+      currentPauseStartedAt: raw.pauseStartedAt || null
+    };
+
+    if (Number(raw.elapsedMs || 0) > 0) {
+      const startedAtMs = new Date(raw.startAt).getTime();
+      const elapsedMs = Number(raw.elapsedMs || 0);
+      const pausedAtMs = raw.pauseStartedAt ? new Date(raw.pauseStartedAt).getTime() : Date.now();
+      const totalWindowMs = Math.max(0, pausedAtMs - startedAtMs);
+      const pausedMs = Math.max(0, totalWindowMs - elapsedMs);
+      if (pausedMs > 0) {
+        migrated.pauses.push({
+          startAt: new Date(pausedAtMs - pausedMs).toISOString(),
+          endAt: raw.pauseStartedAt || new Date().toISOString()
+        });
+      }
+    }
+
+    return migrated;
+  }
+
+  return null;
 }
 
 function loadLocalEntries() {
@@ -191,9 +239,9 @@ function startDay(event) {
   activeSession = {
     date: els.workDate.value,
     startKm: Number(els.startKm.value),
-    startAt: new Date().toISOString(),
-    elapsedMs: 0,
-    pauseStartedAt: null,
+    sessionStartAt: new Date().toISOString(),
+    pauses: [],
+    currentPauseStartedAt: null,
     status: 'running'
   };
   persistActiveSession();
@@ -203,26 +251,40 @@ function startDay(event) {
 function pauseSession() {
   if (!activeSession || activeSession.status !== 'running') return;
   activeSession.status = 'paused';
-  activeSession.pauseStartedAt = new Date().toISOString();
-  activeSession.elapsedMs = getElapsedMs();
+  activeSession.currentPauseStartedAt = new Date().toISOString();
   persistActiveSession();
   renderSession();
 }
 
 function resumeSession() {
   if (!activeSession || activeSession.status !== 'paused') return;
-  const pausedFor = Date.now() - new Date(activeSession.pauseStartedAt).getTime();
-  activeSession.startAt = new Date(new Date(activeSession.startAt).getTime() + pausedFor).toISOString();
-  activeSession.pauseStartedAt = null;
+  activeSession.pauses = activeSession.pauses || [];
+  if (activeSession.currentPauseStartedAt) {
+    activeSession.pauses.push({
+      startAt: activeSession.currentPauseStartedAt,
+      endAt: new Date().toISOString()
+    });
+  }
+  activeSession.currentPauseStartedAt = null;
   activeSession.status = 'running';
   persistActiveSession();
   renderSession();
 }
 
-function getElapsedMs() {
+function getElapsedMs(referenceDate = new Date()) {
   if (!activeSession) return 0;
-  if (activeSession.status === 'paused') return activeSession.elapsedMs || 0;
-  return Date.now() - new Date(activeSession.startAt).getTime();
+  const sessionStartMs = new Date(activeSession.sessionStartAt).getTime();
+  const referenceMs = activeSession.status === 'paused' && activeSession.currentPauseStartedAt
+    ? new Date(activeSession.currentPauseStartedAt).getTime()
+    : referenceDate.getTime();
+
+  const totalPausedMs = (activeSession.pauses || []).reduce((sum, pause) => {
+    const startMs = new Date(pause.startAt).getTime();
+    const endMs = pause.endAt ? new Date(pause.endAt).getTime() : referenceMs;
+    return sum + Math.max(0, endMs - startMs);
+  }, 0);
+
+  return Math.max(0, referenceMs - sessionStartMs - totalPausedMs);
 }
 
 function renderSession() {
@@ -235,7 +297,7 @@ function renderSession() {
     els.startAtText.textContent = '-';
     return;
   }
-  els.startAtText.textContent = new Date(activeSession.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  els.startAtText.textContent = new Date(activeSession.sessionStartAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   els.pauseBtn.classList.toggle('hidden', activeSession.status !== 'running');
   els.resumeBtn.classList.toggle('hidden', activeSession.status !== 'paused');
   const tick = () => { els.elapsedText.textContent = formatDuration(getElapsedMs()); };
@@ -261,7 +323,7 @@ async function finishDay(event) {
   const endAt = new Date();
   const baseEntry = {
     work_date: activeSession.date,
-    start_time: new Date(activeSession.startAt).toISOString(),
+    start_time: new Date(activeSession.sessionStartAt).toISOString(),
     end_time: endAt.toISOString(),
     drive_seconds: Math.floor(getElapsedMs() / 1000),
     start_km: Number(activeSession.startKm),
