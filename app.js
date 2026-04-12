@@ -24,13 +24,14 @@ const els = {
   sessionPanel: $('sessionPanel'), elapsedText: $('elapsedText'), startAtText: $('startAtText'), todayStatus: $('todayStatus'),
   pauseBtn: $('pauseBtn'), resumeBtn: $('resumeBtn'), finishOpenBtn: $('finishOpenBtn'),
   finishDialog: $('finishDialog'), closeFinishDialog: $('closeFinishDialog'), finishForm: $('finishForm'),
-  endKm: $('endKm'), grossAmount: $('grossAmount'), fuelAmount: $('fuelAmount'), vehicleAmount: $('vehicleAmount'), rideCount: $('rideCount'), refueled: $('refueled'), notes: $('notes'),
+  endKm: $('endKm'), grossAmount: $('grossAmount'), fuelAmount: $('fuelAmount'), vehicleAmount: $('vehicleAmount'), vehicleDetailsGroup: $('vehicleDetailsGroup'), vehicleCategory: $('vehicleCategory'), vehicleDescription: $('vehicleDescription'), rideCount: $('rideCount'), refueled: $('refueled'), notes: $('notes'),
   periodType: $('periodType'), fromDate: $('fromDate'), toDate: $('toDate'), customRange: $('customRange'),
-  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), vehicleTotal: $('vehicleTotal'), netTotal: $('netTotal'), kmTotal: $('kmTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
+  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), vehicleTotal: $('vehicleTotal'), vehicleSummaryBtn: $('vehicleSummaryBtn'), netTotal: $('netTotal'), kmTotal: $('kmTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
   historyList: $('historyList'), historyEmpty: $('historyEmpty'),
   editDialog: $('editDialog'), closeEditDialog: $('closeEditDialog'), editForm: $('editForm'), deleteEntryBtn: $('deleteEntryBtn'),
-  editId: $('editId'), editDate: $('editDate'), editStartTime: $('editStartTime'), editEndTime: $('editEndTime'), editDriveTime: $('editDriveTime'), editStartKm: $('editStartKm'), editEndKm: $('editEndKm'), editGross: $('editGross'), editFuel: $('editFuel'), editVehicle: $('editVehicle'), editRides: $('editRides'), editRefueled: $('editRefueled'), editNotes: $('editNotes'),
+  editId: $('editId'), editDate: $('editDate'), editStartTime: $('editStartTime'), editEndTime: $('editEndTime'), editDriveTime: $('editDriveTime'), editStartKm: $('editStartKm'), editEndKm: $('editEndKm'), editGross: $('editGross'), editFuel: $('editFuel'), editVehicle: $('editVehicle'), editVehicleDetailsGroup: $('editVehicleDetailsGroup'), editVehicleCategory: $('editVehicleCategory'), editVehicleDescription: $('editVehicleDescription'), editRides: $('editRides'), editRefueled: $('editRefueled'), editNotes: $('editNotes'),
   exportBtn: $('exportBtn'), importInput: $('importInput'), syncBtn: $('syncBtn'),
+  vehicleExpensesDialog: $('vehicleExpensesDialog'), closeVehicleExpensesDialog: $('closeVehicleExpensesDialog'), vehicleModalTotal: $('vehicleModalTotal'), vehicleModalCount: $('vehicleModalCount'), vehicleCategorySummary: $('vehicleCategorySummary'), vehicleExpensesEmpty: $('vehicleExpensesEmpty'), vehicleExpensesList: $('vehicleExpensesList'),
   settingsDialog: $('settingsDialog'), closeSettingsDialog: $('closeSettingsDialog'), settingsForm: $('settingsForm'), supabaseUrlInput: $('supabaseUrlInput'), supabaseAnonKeyInput: $('supabaseAnonKeyInput')
 };
 
@@ -58,6 +59,7 @@ function bindEvents() {
   els.finishOpenBtn.addEventListener('click', openFinishDialog);
   els.closeFinishDialog.addEventListener('click', () => els.finishDialog.close());
   els.finishForm.addEventListener('submit', finishDay);
+  els.vehicleAmount.addEventListener('input', () => toggleVehicleDetails(false));
 
   els.periodType.addEventListener('change', refreshDashboard);
   els.fromDate.addEventListener('change', refreshDashboard);
@@ -66,6 +68,10 @@ function bindEvents() {
   els.closeEditDialog.addEventListener('click', () => els.editDialog.close());
   els.editForm.addEventListener('submit', saveEdit);
   els.deleteEntryBtn.addEventListener('click', deleteEntry);
+  els.editVehicle.addEventListener('input', () => toggleVehicleDetails(true));
+
+  els.vehicleSummaryBtn.addEventListener('click', openVehicleExpensesDialog);
+  els.closeVehicleExpensesDialog.addEventListener('click', () => els.vehicleExpensesDialog.close());
 
   els.exportBtn.addEventListener('click', exportJson);
   els.importInput.addEventListener('change', importJson);
@@ -222,7 +228,13 @@ function loadLocalEntries() {
 }
 
 function normalizeLocalEntries(items) {
-  return (items || []).map((item) => ({ ...item, vehicle_amount: Number(item.vehicle_amount || 0), source: item.source || 'local' }));
+  return (items || []).map((item) => ({
+    ...item,
+    vehicle_amount: Number(item.vehicle_amount || 0),
+    vehicle_category: item.vehicle_category || '',
+    vehicle_description: item.vehicle_description || '',
+    source: item.source || 'local'
+  }));
 }
 
 function persistLocalEntries() {
@@ -311,6 +323,9 @@ function openFinishDialog() {
   els.grossAmount.value = '';
   els.fuelAmount.value = '0';
   els.vehicleAmount.value = '0';
+  els.vehicleCategory.value = '';
+  els.vehicleDescription.value = '';
+  toggleVehicleDetails(false);
   els.rideCount.value = '0';
   els.refueled.checked = false;
   els.notes.value = '';
@@ -331,6 +346,8 @@ async function finishDay(event) {
     gross_amount: Number(els.grossAmount.value),
     fuel_amount: Number(els.fuelAmount.value),
     vehicle_amount: Number(els.vehicleAmount.value),
+    vehicle_category: normalizedVehicleCategory(els.vehicleAmount.value, els.vehicleCategory.value),
+    vehicle_description: normalizedVehicleDescription(els.vehicleAmount.value, els.vehicleDescription.value),
     ride_count: Number(els.rideCount.value),
     refueled: els.refueled.checked,
     notes: els.notes.value.trim()
@@ -419,6 +436,7 @@ function refreshDashboard() {
   els.hoursTotal.textContent = formatHoursMinutes(secs);
   renderChart(filtered);
   renderHistory();
+  if (els.vehicleExpensesDialog.open) renderVehicleExpensesDialog(filtered);
 }
 
 function renderChart(filtered) {
@@ -505,7 +523,7 @@ function renderHistory() {
       <div class="history-stats">
         <div class="history-stat">Bruto<br><strong>${money(item.gross_amount)}</strong></div>
         <div class="history-stat">Combustível<br><strong>${money(item.fuel_amount)}</strong></div>
-        <div class="history-stat">Veículo<br><strong>${money(item.vehicle_amount || 0)}</strong></div>
+        <div class="history-stat">Veículo<br><strong>${money(item.vehicle_amount || 0)}</strong>${renderVehicleMeta(item)}</div>
         <div class="history-stat">Líquido<br><strong>${money(Number(item.gross_amount) - Number(item.fuel_amount) - Number(item.vehicle_amount || 0))}</strong></div>
         <div class="history-stat">Tempo<br><strong>${formatDuration(Number(item.drive_seconds||0)*1000)}</strong></div>
       </div>
@@ -533,6 +551,9 @@ function openEdit(id) {
   els.editGross.value = item.gross_amount;
   els.editFuel.value = item.fuel_amount;
   els.editVehicle.value = Number(item.vehicle_amount || 0);
+  els.editVehicleCategory.value = item.vehicle_category || '';
+  els.editVehicleDescription.value = item.vehicle_description || '';
+  toggleVehicleDetails(true, Number(item.vehicle_amount || 0) > 0);
   els.editRides.value = item.ride_count;
   els.editRefueled.checked = !!item.refueled;
   els.editNotes.value = item.notes || '';
@@ -555,6 +576,8 @@ async function saveEdit(event) {
     gross_amount: Number(els.editGross.value),
     fuel_amount: Number(els.editFuel.value),
     vehicle_amount: Number(els.editVehicle.value),
+    vehicle_category: normalizedVehicleCategory(els.editVehicle.value, els.editVehicleCategory.value),
+    vehicle_description: normalizedVehicleDescription(els.editVehicle.value, els.editVehicleDescription.value),
     ride_count: Number(els.editRides.value),
     refueled: els.editRefueled.checked,
     notes: els.editNotes.value.trim()
@@ -609,6 +632,8 @@ async function syncEntries() {
     gross_amount: Number(item.gross_amount || 0),
     fuel_amount: Number(item.fuel_amount || 0),
     vehicle_amount: Number(item.vehicle_amount || 0),
+    vehicle_category: item.vehicle_category || '',
+    vehicle_description: item.vehicle_description || '',
     ride_count: Number(item.ride_count || 0),
     refueled: !!item.refueled,
     notes: item.notes || ''
@@ -647,6 +672,8 @@ async function importJson(event) {
       gross_amount: Number(item.gross_amount || 0),
       fuel_amount: Number(item.fuel_amount || 0),
       vehicle_amount: Number(item.vehicle_amount || 0),
+      vehicle_category: item.vehicle_category || '',
+      vehicle_description: item.vehicle_description || '',
       ride_count: Number(item.ride_count || 0),
       refueled: !!item.refueled,
       notes: item.notes || '',
@@ -671,6 +698,92 @@ async function importJson(event) {
   }
 }
 
+
+
+function toggleVehicleDetails(isEdit, forceVisible = null) {
+  const amountEl = isEdit ? els.editVehicle : els.vehicleAmount;
+  const groupEl = isEdit ? els.editVehicleDetailsGroup : els.vehicleDetailsGroup;
+  const categoryEl = isEdit ? els.editVehicleCategory : els.vehicleCategory;
+  const descriptionEl = isEdit ? els.editVehicleDescription : els.vehicleDescription;
+  const visible = forceVisible ?? Number(amountEl.value || 0) > 0;
+  groupEl.classList.toggle('hidden', !visible);
+  categoryEl.required = visible;
+  descriptionEl.required = visible;
+  if (!visible) {
+    categoryEl.value = '';
+    descriptionEl.value = '';
+  }
+}
+
+function normalizedVehicleCategory(amount, value) {
+  return Number(amount || 0) > 0 ? String(value || '').trim() : '';
+}
+
+function normalizedVehicleDescription(amount, value) {
+  return Number(amount || 0) > 0 ? String(value || '').trim() : '';
+}
+
+function vehicleCategoryLabel(value) {
+  const labels = {
+    manutencao: 'Manutenção',
+    lavagem: 'Lavagem',
+    pneus: 'Pneus',
+    estacionamento: 'Estacionamento',
+    pedagio: 'Pedágio',
+    documentacao: 'Documentação',
+    acessorios: 'Acessórios',
+    outros: 'Outros'
+  };
+  return labels[value] || 'Sem categoria';
+}
+
+function renderVehicleMeta(item) {
+  if (Number(item.vehicle_amount || 0) <= 0) return '';
+  const bits = [];
+  if (item.vehicle_category) bits.push(vehicleCategoryLabel(item.vehicle_category));
+  if (item.vehicle_description) bits.push(escapeHtml(item.vehicle_description));
+  if (!bits.length) return '';
+  return `<div class="tiny muted vehicle-meta">${bits.join(' • ')}</div>`;
+}
+
+function openVehicleExpensesDialog() {
+  renderVehicleExpensesDialog(getFilteredEntries());
+  els.vehicleExpensesDialog.showModal();
+}
+
+function renderVehicleExpensesDialog(filtered) {
+  const vehicleItems = filtered
+    .filter((item) => Number(item.vehicle_amount || 0) > 0)
+    .sort((a, b) => String(b.work_date).localeCompare(String(a.work_date)) || String(b.start_time).localeCompare(String(a.start_time)));
+
+  const total = vehicleItems.reduce((sum, item) => sum + Number(item.vehicle_amount || 0), 0);
+  els.vehicleModalTotal.textContent = money(total);
+  els.vehicleModalCount.textContent = String(vehicleItems.length);
+
+  const categoryMap = new Map();
+  for (const item of vehicleItems) {
+    const key = item.vehicle_category || 'sem_categoria';
+    const label = item.vehicle_category ? vehicleCategoryLabel(item.vehicle_category) : 'Sem categoria';
+    categoryMap.set(key, { label, total: (categoryMap.get(key)?.total || 0) + Number(item.vehicle_amount || 0) });
+  }
+
+  const categoryRows = [...categoryMap.values()].sort((a, b) => b.total - a.total);
+  els.vehicleCategorySummary.innerHTML = categoryRows.length
+    ? categoryRows.map((row) => `<div class="category-pill"><span>${escapeHtml(row.label)}</span><strong>${money(row.total)}</strong></div>`).join('')
+    : '<div class="muted">Sem gastos com veículo neste período.</div>';
+
+  els.vehicleExpensesEmpty.classList.toggle('hidden', vehicleItems.length > 0);
+  els.vehicleExpensesList.innerHTML = vehicleItems.map((item) => `
+    <article class="expense-item">
+      <div class="expense-top">
+        <strong>${formatDate(item.work_date)}</strong>
+        <strong>${money(item.vehicle_amount)}</strong>
+      </div>
+      <div class="tiny muted">${escapeHtml(vehicleCategoryLabel(item.vehicle_category || ''))}</div>
+      <div>${escapeHtml(item.vehicle_description || 'Sem descrição.')}</div>
+    </article>
+  `).join('');
+}
 
 function formatKm(value) {
   return `${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;

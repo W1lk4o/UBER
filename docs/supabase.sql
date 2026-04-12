@@ -12,12 +12,19 @@ create table if not exists public.work_days (
   gross_amount numeric(10,2) not null default 0,
   fuel_amount numeric(10,2) not null default 0,
   vehicle_amount numeric(10,2) not null default 0,
+  vehicle_category text not null default '',
+  vehicle_description text not null default '',
   ride_count integer not null default 0,
   refueled boolean not null default false,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.work_days
+  add column if not exists vehicle_amount numeric(10,2) not null default 0,
+  add column if not exists vehicle_category text not null default '',
+  add column if not exists vehicle_description text not null default '';
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -29,34 +36,49 @@ begin
 end;
 $$;
 
- drop trigger if exists trg_work_days_updated_at on public.work_days;
- create trigger trg_work_days_updated_at
- before update on public.work_days
- for each row execute function public.set_updated_at();
+drop trigger if exists trg_work_days_updated_at on public.work_days;
+create trigger trg_work_days_updated_at
+before update on public.work_days
+for each row execute function public.set_updated_at();
 
 alter table public.work_days enable row level security;
 
-create policy "users_select_own_work_days"
-on public.work_days
-for select
-using (auth.uid() = user_id);
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public' and tablename = 'work_days' and policyname = 'users_select_own_work_days'
+  ) then
+    create policy "users_select_own_work_days"
+    on public.work_days
+    for select
+    using (auth.uid() = user_id);
+  end if;
 
-create policy "users_insert_own_work_days"
-on public.work_days
-for insert
-with check (auth.uid() = user_id);
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public' and tablename = 'work_days' and policyname = 'users_insert_own_work_days'
+  ) then
+    create policy "users_insert_own_work_days"
+    on public.work_days
+    for insert
+    with check (auth.uid() = user_id);
+  end if;
 
-create policy "users_update_own_work_days"
-on public.work_days
-for update
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public' and tablename = 'work_days' and policyname = 'users_update_own_work_days'
+  ) then
+    create policy "users_update_own_work_days"
+    on public.work_days
+    for update
+    using (auth.uid() = user_id)
+    with check (auth.uid() = user_id);
+  end if;
 
-create policy "users_delete_own_work_days"
-on public.work_days
-for delete
-using (auth.uid() = user_id);
-
-
-alter table public.work_days
-add column if not exists vehicle_amount numeric(10,2) not null default 0;
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public' and tablename = 'work_days' and policyname = 'users_delete_own_work_days'
+  ) then
+    create policy "users_delete_own_work_days"
+    on public.work_days
+    for delete
+    using (auth.uid() = user_id);
+  end if;
+end $$;

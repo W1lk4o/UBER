@@ -114,10 +114,11 @@
               <span class="metric-label">Gasto combustível</span>
               <strong id="fuelTotal">R$ 0,00</strong>
             </div>
-            <div class="metric">
+            <button type="button" class="metric metric-button" id="vehicleSummaryBtn">
               <span class="metric-label">Gastos com veículo</span>
               <strong id="vehicleTotal">R$ 0,00</strong>
-            </div>
+              <span class="tiny muted">Toque para ver os detalhes</span>
+            </button>
             <div class="metric">
               <span class="metric-label">Líquido</span>
               <strong id="netTotal">R$ 0,00</strong>
@@ -175,6 +176,26 @@
         Gastos com veículo do dia
         <input id="vehicleAmount" type="number" step="0.01" min="0" value="0" required />
       </label>
+      <div id="vehicleDetailsGroup" class="stack gap-12 hidden">
+        <label>
+          Categoria do gasto
+          <select id="vehicleCategory">
+            <option value="">Selecione</option>
+            <option value="manutencao">Manutenção</option>
+            <option value="lavagem">Lavagem</option>
+            <option value="pneus">Pneus</option>
+            <option value="estacionamento">Estacionamento</option>
+            <option value="pedagio">Pedágio</option>
+            <option value="documentacao">Documentação</option>
+            <option value="acessorios">Acessórios</option>
+            <option value="outros">Outros</option>
+          </select>
+        </label>
+        <label>
+          Descrição do gasto
+          <textarea id="vehicleDescription" rows="2" placeholder="Ex.: troca de óleo e filtro"></textarea>
+        </label>
+      </div>
       <label>
         Quantas corridas você fez?
         <input id="rideCount" type="number" min="0" value="0" required />
@@ -209,6 +230,22 @@
       <label>Faturamento bruto<input id="editGross" type="number" step="0.01" min="0" required /></label>
       <label>Combustível<input id="editFuel" type="number" step="0.01" min="0" required /></label>
       <label>Gastos com veículo<input id="editVehicle" type="number" step="0.01" min="0" required /></label>
+      <div id="editVehicleDetailsGroup" class="stack gap-12 hidden">
+        <label>Categoria do gasto
+          <select id="editVehicleCategory">
+            <option value="">Selecione</option>
+            <option value="manutencao">Manutenção</option>
+            <option value="lavagem">Lavagem</option>
+            <option value="pneus">Pneus</option>
+            <option value="estacionamento">Estacionamento</option>
+            <option value="pedagio">Pedágio</option>
+            <option value="documentacao">Documentação</option>
+            <option value="acessorios">Acessórios</option>
+            <option value="outros">Outros</option>
+          </select>
+        </label>
+        <label>Descrição do gasto<textarea id="editVehicleDescription" rows="2" placeholder="Ex.: troca de óleo e filtro"></textarea></label>
+      </div>
       <label>Corridas<input id="editRides" type="number" min="0" required /></label>
       <label><input id="editRefueled" type="checkbox" /> Colocou combustível</label>
       <label>Observações<textarea id="editNotes" rows="3"></textarea></label>
@@ -217,6 +254,34 @@
         <button type="button" id="deleteEntryBtn" class="danger">Excluir dia</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="vehicleExpensesDialog">
+    <div class="dialog-form stack gap-12">
+      <div class="section-head">
+        <h2>Gastos com veículo</h2>
+        <button type="button" class="ghost" id="closeVehicleExpensesDialog">Fechar</button>
+      </div>
+      <div class="metric-grid">
+        <div class="metric">
+          <span class="metric-label">Total no período</span>
+          <strong id="vehicleModalTotal">R$ 0,00</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Lançamentos</span>
+          <strong id="vehicleModalCount">0</strong>
+        </div>
+      </div>
+      <div>
+        <h3 class="subhead">Totais por categoria</h3>
+        <div id="vehicleCategorySummary" class="category-summary"></div>
+      </div>
+      <div>
+        <h3 class="subhead">Detalhes do período</h3>
+        <div id="vehicleExpensesEmpty" class="muted">Nenhum gasto com veículo neste período.</div>
+        <div id="vehicleExpensesList" class="expense-list"></div>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="settingsDialog">
