@@ -3,12 +3,14 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const STORAGE_KEYS = {
   supabaseUrl: 'uber_supabase_url',
   supabaseAnonKey: 'uber_supabase_anon_key',
-  session: 'uber_active_session'
+  session: 'uber_active_session',
+  localEntries: 'uber_local_entries'
 };
 
 let supabase = null;
 let currentUser = null;
 let entries = [];
+let localEntries = loadLocalEntries();
 let activeSession = loadActiveSession();
 let timerInterval = null;
 let chart = null;
@@ -36,6 +38,8 @@ function boot() {
   setToday();
   bindEvents();
   restoreSupabaseClient();
+  renderAuthState();
+  refreshDashboard();
   renderSession();
 }
 
@@ -73,10 +77,7 @@ function restoreSupabaseClient() {
   const key = localStorage.getItem(STORAGE_KEYS.supabaseAnonKey) || '';
   els.supabaseUrlInput.value = url;
   els.supabaseAnonKeyInput.value = key;
-  if (!url || !key) {
-    renderAuthState();
-    return;
-  }
+  if (!url || !key) return;
   supabase = createClient(url, key);
   initAuthState();
 }
@@ -94,7 +95,10 @@ async function initAuthState() {
     currentUser = session?.user ?? null;
     renderAuthState();
     if (currentUser) await loadEntries();
-    else { entries = []; refreshDashboard(); }
+    else {
+      entries = normalizeLocalEntries(loadLocalEntries());
+      refreshDashboard();
+    }
   });
 }
 
@@ -102,8 +106,9 @@ function renderAuthState() {
   const hasConfig = !!supabase;
   els.setupWarning.classList.toggle('hidden', hasConfig);
   els.authCard.classList.toggle('hidden', !hasConfig || !!currentUser);
-  els.appContent.classList.toggle('hidden', !currentUser);
+  els.appContent.classList.remove('hidden');
   els.logoutBtn.classList.toggle('hidden', !currentUser);
+  els.syncBtn.classList.toggle('hidden', !currentUser);
 }
 
 function openSettings() { els.settingsDialog.showModal(); }
@@ -146,6 +151,8 @@ async function logout() {
 function setToday() {
   const today = new Date().toISOString().slice(0, 10);
   els.workDate.value = today;
+  if (!els.fromDate.value) els.fromDate.value = today;
+  if (!els.toDate.value) els.toDate.value = today;
 }
 
 function loadActiveSession() {
@@ -153,7 +160,29 @@ function loadActiveSession() {
   catch { return null; }
 }
 function persistActiveSession() {
-  localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(activeSession));
+  if (!activeSession) localStorage.removeItem(STORAGE_KEYS.session);
+  else localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(activeSession));
+}
+
+function loadLocalEntries() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.localEntries) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeLocalEntries(items) {
+  return (items || []).map((item) => ({ ...item, source: item.source || 'local' }));
+}
+
+function persistLocalEntries() {
+  localStorage.setItem(STORAGE_KEYS.localEntries, JSON.stringify(localEntries));
+}
+
+function makeLocalId() {
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 function startDay(event) {
@@ -201,7 +230,11 @@ function renderSession() {
   const active = !!activeSession;
   els.sessionPanel.classList.toggle('hidden', !active);
   els.todayStatus.textContent = active ? (activeSession.status === 'running' ? 'Rodando' : 'Pausado') : 'Sem corrida ativa';
-  if (!active) return;
+  if (!active) {
+    els.elapsedText.textContent = '00:00:00';
+    els.startAtText.textContent = '-';
+    return;
+  }
   els.startAtText.textContent = new Date(activeSession.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   els.pauseBtn.classList.toggle('hidden', activeSession.status !== 'running');
   els.resumeBtn.classList.toggle('hidden', activeSession.status !== 'paused');
@@ -223,10 +256,9 @@ function openFinishDialog() {
 
 async function finishDay(event) {
   event.preventDefault();
-  if (!currentUser || !supabase || !activeSession) return;
+  if (!activeSession) return;
   const endAt = new Date();
-  const entry = {
-    user_id: currentUser.id,
+  const baseEntry = {
     work_date: activeSession.date,
     start_time: new Date(activeSession.startAt).toISOString(),
     end_time: endAt.toISOString(),
@@ -239,8 +271,18 @@ async function finishDay(event) {
     refueled: els.refueled.checked,
     notes: els.notes.value.trim()
   };
-  const { error } = await supabase.from('work_days').insert(entry);
-  if (error) return alert('Erro ao salvar no Supabase: ' + error.message);
+
+  if (currentUser && supabase) {
+    const entry = { ...baseEntry, user_id: currentUser.id };
+    const { data, error } = await supabase.from('work_days').insert(entry).select().single();
+    if (error) return alert('Erro ao salvar no Supabase: ' + error.message);
+    localEntries.unshift({ ...data, source: 'cloud' });
+    persistLocalEntries();
+  } else {
+    localEntries.unshift({ ...baseEntry, id: makeLocalId(), source: 'local' });
+    persistLocalEntries();
+  }
+
   activeSession = null;
   persistActiveSession();
   els.finishDialog.close();
@@ -249,9 +291,23 @@ async function finishDay(event) {
 }
 
 async function loadEntries() {
-  const { data, error } = await supabase.from('work_days').select('*').order('work_date', { ascending: false }).order('start_time', { ascending: false });
-  if (error) return alert('Erro ao carregar dias: ' + error.message);
-  entries = data || [];
+  localEntries = loadLocalEntries();
+  let merged = normalizeLocalEntries(localEntries);
+  if (currentUser && supabase) {
+    const { data, error } = await supabase
+      .from('work_days')
+      .select('*')
+      .order('work_date', { ascending: false })
+      .order('start_time', { ascending: false });
+    if (error) {
+      alert('Erro ao carregar dias: ' + error.message);
+    } else {
+      merged = (data || []).map((item) => ({ ...item, source: 'cloud' }));
+      localEntries = merged;
+      persistLocalEntries();
+    }
+  }
+  entries = merged.sort((a, b) => String(b.work_date).localeCompare(String(a.work_date)) || String(b.start_time).localeCompare(String(a.start_time)));
   refreshDashboard();
 }
 
@@ -298,7 +354,7 @@ function refreshDashboard() {
 }
 
 function renderChart(filtered) {
-  const grouped = [...filtered].sort((a,b) => a.work_date.localeCompare(b.work_date));
+  const grouped = [...filtered].sort((a,b) => String(a.work_date).localeCompare(String(b.work_date)));
   const labels = grouped.map(item => formatDate(item.work_date));
   const grossData = grouped.map(item => Number(item.gross_amount || 0));
   const fuelData = grouped.map(item => Number(item.fuel_amount || 0));
@@ -311,7 +367,17 @@ function renderChart(filtered) {
       { label: 'Combustível', data: fuelData },
       { label: 'Líquido', data: netData }
     ]},
-    options: { responsive: true, maintainAspectRatio: false }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      resizeDelay: 150,
+      plugins: { legend: { labels: { color: '#f9fafb' } } },
+      scales: {
+        x: { ticks: { color: '#e5e7eb' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+        y: { ticks: { color: '#e5e7eb' }, grid: { color: 'rgba(255,255,255,0.06)' } }
+      }
+    }
   });
 }
 
@@ -327,8 +393,9 @@ function renderHistory() {
           <strong>${formatDate(item.work_date)}</strong>
           <div class="muted">${timeOnly(item.start_time)} até ${timeOnly(item.end_time)}</div>
         </div>
-        <div class="row wrap">
-          <button class="secondary" data-edit="${item.id}">Editar</button>
+        <div class="row wrap actions-right">
+          <span class="tiny muted">${item.source === 'cloud' ? 'Nuvem' : 'Local'}</span>
+          <button type="button" class="secondary" data-edit="${escapeHtml(String(item.id))}">Editar</button>
         </div>
       </div>
       <div class="history-stats">
@@ -343,15 +410,15 @@ function renderHistory() {
         <div class="history-stat">Abasteceu<br><strong>${item.refueled ? 'Sim' : 'Não'}</strong></div>
         <div class="history-stat">Obs.<br><strong>${escapeHtml(item.notes || '-')}</strong></div>
       </div>`;
-    div.querySelector('[data-edit]').addEventListener('click', () => openEdit(item.id));
+    div.querySelector('[data-edit]').addEventListener('click', () => openEdit(String(item.id)));
     els.historyList.appendChild(div);
   }
 }
 
 function openEdit(id) {
-  const item = entries.find(x => x.id === id);
-  if (!item) return;
-  els.editId.value = item.id;
+  const item = entries.find(x => String(x.id) === String(id));
+  if (!item) return alert('Não achei esse lançamento.');
+  els.editId.value = String(item.id);
   els.editDate.value = item.work_date;
   els.editStartTime.value = timeInputValue(item.start_time);
   els.editEndTime.value = timeInputValue(item.end_time);
@@ -369,6 +436,9 @@ function openEdit(id) {
 async function saveEdit(event) {
   event.preventDefault();
   const id = els.editId.value;
+  const existing = entries.find((item) => String(item.id) === String(id));
+  if (!existing) return alert('Lançamento não encontrado.');
+
   const payload = {
     work_date: els.editDate.value,
     start_time: combineDateAndTime(els.editDate.value, els.editStartTime.value),
@@ -382,22 +452,64 @@ async function saveEdit(event) {
     refueled: els.editRefueled.checked,
     notes: els.editNotes.value.trim()
   };
-  const { error } = await supabase.from('work_days').update(payload).eq('id', id);
-  if (error) return alert('Erro ao atualizar: ' + error.message);
+
+  if (existing.source === 'cloud' && currentUser && supabase) {
+    const { error } = await supabase.from('work_days').update(payload).eq('id', id);
+    if (error) return alert('Erro ao atualizar: ' + error.message);
+  }
+
+  localEntries = loadLocalEntries().map((item) => String(item.id) === String(id) ? { ...item, ...payload } : item);
+  if (!localEntries.some((item) => String(item.id) === String(id))) {
+    localEntries.unshift({ ...existing, ...payload });
+  }
+  persistLocalEntries();
   els.editDialog.close();
   await loadEntries();
 }
 
 async function deleteEntry() {
   const id = els.editId.value;
+  const existing = entries.find((item) => String(item.id) === String(id));
+  if (!existing) return alert('Lançamento não encontrado.');
   if (!confirm('Excluir este dia?')) return;
-  const { error } = await supabase.from('work_days').delete().eq('id', id);
-  if (error) return alert('Erro ao excluir: ' + error.message);
+
+  if (existing.source === 'cloud' && currentUser && supabase) {
+    const { error } = await supabase.from('work_days').delete().eq('id', id);
+    if (error) return alert('Erro ao excluir: ' + error.message);
+  }
+
+  localEntries = loadLocalEntries().filter((item) => String(item.id) !== String(id));
+  persistLocalEntries();
   els.editDialog.close();
   await loadEntries();
 }
 
-async function syncEntries() { if (currentUser) await loadEntries(); }
+async function syncEntries() {
+  if (!currentUser || !supabase) return alert('Conecte o Supabase e faça login primeiro.');
+  const pending = loadLocalEntries().filter((item) => item.source === 'local');
+  if (!pending.length) {
+    alert('Não há lançamentos locais pendentes para sincronizar.');
+    return;
+  }
+  const payload = pending.map((item) => ({
+    user_id: currentUser.id,
+    work_date: item.work_date,
+    start_time: item.start_time,
+    end_time: item.end_time,
+    drive_seconds: Number(item.drive_seconds || 0),
+    start_km: Number(item.start_km || 0),
+    end_km: Number(item.end_km || 0),
+    gross_amount: Number(item.gross_amount || 0),
+    fuel_amount: Number(item.fuel_amount || 0),
+    ride_count: Number(item.ride_count || 0),
+    refueled: !!item.refueled,
+    notes: item.notes || ''
+  }));
+  const { error } = await supabase.from('work_days').insert(payload);
+  if (error) return alert('Erro ao sincronizar: ' + error.message);
+  alert('Sincronização concluída.');
+  await loadEntries();
+}
 
 function exportJson() {
   const blob = new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' });
@@ -415,8 +527,9 @@ async function importJson(event) {
   try {
     const parsed = JSON.parse(await file.text());
     if (!Array.isArray(parsed)) throw new Error('Arquivo inválido.');
-    const payload = parsed.map(item => ({
-      user_id: currentUser.id,
+
+    const normalized = parsed.map((item) => ({
+      id: item.id || makeLocalId(),
       work_date: item.work_date,
       start_time: item.start_time,
       end_time: item.end_time,
@@ -427,10 +540,19 @@ async function importJson(event) {
       fuel_amount: Number(item.fuel_amount || 0),
       ride_count: Number(item.ride_count || 0),
       refueled: !!item.refueled,
-      notes: item.notes || ''
+      notes: item.notes || '',
+      source: currentUser ? 'cloud' : 'local'
     }));
-    const { error } = await supabase.from('work_days').insert(payload);
-    if (error) throw error;
+
+    if (currentUser && supabase) {
+      const payload = normalized.map((item) => ({ ...item, id: undefined, source: undefined, user_id: currentUser.id }));
+      const { error } = await supabase.from('work_days').insert(payload);
+      if (error) throw error;
+    } else {
+      localEntries = [...normalized, ...loadLocalEntries()];
+      persistLocalEntries();
+    }
+
     alert('Importação concluída.');
     await loadEntries();
   } catch (err) {
