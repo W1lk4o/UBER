@@ -24,12 +24,12 @@ const els = {
   sessionPanel: $('sessionPanel'), elapsedText: $('elapsedText'), startAtText: $('startAtText'), todayStatus: $('todayStatus'),
   pauseBtn: $('pauseBtn'), resumeBtn: $('resumeBtn'), finishOpenBtn: $('finishOpenBtn'),
   finishDialog: $('finishDialog'), closeFinishDialog: $('closeFinishDialog'), finishForm: $('finishForm'),
-  endKm: $('endKm'), grossAmount: $('grossAmount'), fuelAmount: $('fuelAmount'), rideCount: $('rideCount'), refueled: $('refueled'), notes: $('notes'),
+  endKm: $('endKm'), grossAmount: $('grossAmount'), fuelAmount: $('fuelAmount'), vehicleAmount: $('vehicleAmount'), rideCount: $('rideCount'), refueled: $('refueled'), notes: $('notes'),
   periodType: $('periodType'), fromDate: $('fromDate'), toDate: $('toDate'), customRange: $('customRange'),
-  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), netTotal: $('netTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
+  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), vehicleTotal: $('vehicleTotal'), netTotal: $('netTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
   historyList: $('historyList'), historyEmpty: $('historyEmpty'),
   editDialog: $('editDialog'), closeEditDialog: $('closeEditDialog'), editForm: $('editForm'), deleteEntryBtn: $('deleteEntryBtn'),
-  editId: $('editId'), editDate: $('editDate'), editStartTime: $('editStartTime'), editEndTime: $('editEndTime'), editDriveTime: $('editDriveTime'), editStartKm: $('editStartKm'), editEndKm: $('editEndKm'), editGross: $('editGross'), editFuel: $('editFuel'), editRides: $('editRides'), editRefueled: $('editRefueled'), editNotes: $('editNotes'),
+  editId: $('editId'), editDate: $('editDate'), editStartTime: $('editStartTime'), editEndTime: $('editEndTime'), editDriveTime: $('editDriveTime'), editStartKm: $('editStartKm'), editEndKm: $('editEndKm'), editGross: $('editGross'), editFuel: $('editFuel'), editVehicle: $('editVehicle'), editRides: $('editRides'), editRefueled: $('editRefueled'), editNotes: $('editNotes'),
   exportBtn: $('exportBtn'), importInput: $('importInput'), syncBtn: $('syncBtn'),
   settingsDialog: $('settingsDialog'), closeSettingsDialog: $('closeSettingsDialog'), settingsForm: $('settingsForm'), supabaseUrlInput: $('supabaseUrlInput'), supabaseAnonKeyInput: $('supabaseAnonKeyInput')
 };
@@ -174,7 +174,7 @@ function loadLocalEntries() {
 }
 
 function normalizeLocalEntries(items) {
-  return (items || []).map((item) => ({ ...item, source: item.source || 'local' }));
+  return (items || []).map((item) => ({ ...item, vehicle_amount: Number(item.vehicle_amount || 0), source: item.source || 'local' }));
 }
 
 function persistLocalEntries() {
@@ -248,6 +248,7 @@ function openFinishDialog() {
   els.endKm.value = '';
   els.grossAmount.value = '';
   els.fuelAmount.value = '0';
+  els.vehicleAmount.value = '0';
   els.rideCount.value = '0';
   els.refueled.checked = false;
   els.notes.value = '';
@@ -267,6 +268,7 @@ async function finishDay(event) {
     end_km: Number(els.endKm.value),
     gross_amount: Number(els.grossAmount.value),
     fuel_amount: Number(els.fuelAmount.value),
+    vehicle_amount: Number(els.vehicleAmount.value),
     ride_count: Number(els.rideCount.value),
     refueled: els.refueled.checked,
     notes: els.notes.value.trim()
@@ -344,29 +346,29 @@ function refreshDashboard() {
   const filtered = getFilteredEntries();
   const gross = filtered.reduce((sum, item) => sum + Number(item.gross_amount || 0), 0);
   const fuel = filtered.reduce((sum, item) => sum + Number(item.fuel_amount || 0), 0);
+  const vehicle = filtered.reduce((sum, item) => sum + Number(item.vehicle_amount || 0), 0);
   const secs = filtered.reduce((sum, item) => sum + Number(item.drive_seconds || 0), 0);
   els.grossTotal.textContent = money(gross);
   els.fuelTotal.textContent = money(fuel);
-  els.netTotal.textContent = money(gross - fuel);
+  els.vehicleTotal.textContent = money(vehicle);
+  els.netTotal.textContent = money(gross - fuel - vehicle);
   els.hoursTotal.textContent = formatHoursMinutes(secs);
   renderChart(filtered);
   renderHistory();
 }
 
 function renderChart(filtered) {
-  const grouped = [...filtered].sort((a,b) => String(a.work_date).localeCompare(String(b.work_date)));
-  const labels = grouped.map(item => formatDate(item.work_date));
-  const grossData = grouped.map(item => Number(item.gross_amount || 0));
-  const fuelData = grouped.map(item => Number(item.fuel_amount || 0));
-  const netData = grouped.map(item => Number(item.gross_amount || 0) - Number(item.fuel_amount || 0));
+  const grouped = groupEntriesForChart(filtered);
   if (chart) chart.destroy();
   chart = new Chart(els.chartCanvas, {
     type: 'bar',
-    data: { labels, datasets: [
-      { label: 'Bruto', data: grossData },
-      { label: 'Combustível', data: fuelData },
-      { label: 'Líquido', data: netData }
-    ]},
+    data: {
+      labels: grouped.labels,
+      datasets: [
+        { label: 'Bruto', data: grouped.grossData, borderRadius: 8 },
+        { label: 'Líquido', data: grouped.netData, borderRadius: 8 }
+      ]
+    },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -374,11 +376,49 @@ function renderChart(filtered) {
       resizeDelay: 150,
       plugins: { legend: { labels: { color: '#f9fafb' } } },
       scales: {
-        x: { ticks: { color: '#e5e7eb' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+        x: { ticks: { color: '#e5e7eb' }, grid: { display: false } },
         y: { ticks: { color: '#e5e7eb' }, grid: { color: 'rgba(255,255,255,0.06)' } }
       }
     }
   });
+}
+
+function groupEntriesForChart(filtered) {
+  const period = els.periodType.value;
+  const map = new Map();
+
+  for (const item of filtered) {
+    const date = new Date(item.work_date + 'T12:00:00');
+    const key = period === 'year'
+      ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      : item.work_date;
+
+    if (!map.has(key)) {
+      map.set(key, {
+        label: period === 'year'
+          ? date.toLocaleDateString('pt-BR', { month: 'short' })
+          : formatDate(item.work_date),
+        gross: 0,
+        fuel: 0,
+        vehicle: 0
+      });
+    }
+
+    const target = map.get(key);
+    target.gross += Number(item.gross_amount || 0);
+    target.fuel += Number(item.fuel_amount || 0);
+    target.vehicle += Number(item.vehicle_amount || 0);
+  }
+
+  const rows = [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, value]) => value);
+
+  return {
+    labels: rows.map((row) => row.label),
+    grossData: rows.map((row) => round2(row.gross)),
+    netData: rows.map((row) => round2(row.gross - row.fuel - row.vehicle))
+  };
 }
 
 function renderHistory() {
@@ -401,7 +441,8 @@ function renderHistory() {
       <div class="history-stats">
         <div class="history-stat">Bruto<br><strong>${money(item.gross_amount)}</strong></div>
         <div class="history-stat">Combustível<br><strong>${money(item.fuel_amount)}</strong></div>
-        <div class="history-stat">Líquido<br><strong>${money(Number(item.gross_amount)-Number(item.fuel_amount))}</strong></div>
+        <div class="history-stat">Veículo<br><strong>${money(item.vehicle_amount || 0)}</strong></div>
+        <div class="history-stat">Líquido<br><strong>${money(Number(item.gross_amount) - Number(item.fuel_amount) - Number(item.vehicle_amount || 0))}</strong></div>
         <div class="history-stat">Tempo<br><strong>${formatDuration(Number(item.drive_seconds||0)*1000)}</strong></div>
       </div>
       <div class="history-stats">
@@ -427,6 +468,7 @@ function openEdit(id) {
   els.editEndKm.value = item.end_km;
   els.editGross.value = item.gross_amount;
   els.editFuel.value = item.fuel_amount;
+  els.editVehicle.value = Number(item.vehicle_amount || 0);
   els.editRides.value = item.ride_count;
   els.editRefueled.checked = !!item.refueled;
   els.editNotes.value = item.notes || '';
@@ -448,6 +490,7 @@ async function saveEdit(event) {
     end_km: Number(els.editEndKm.value),
     gross_amount: Number(els.editGross.value),
     fuel_amount: Number(els.editFuel.value),
+    vehicle_amount: Number(els.editVehicle.value),
     ride_count: Number(els.editRides.value),
     refueled: els.editRefueled.checked,
     notes: els.editNotes.value.trim()
@@ -501,6 +544,7 @@ async function syncEntries() {
     end_km: Number(item.end_km || 0),
     gross_amount: Number(item.gross_amount || 0),
     fuel_amount: Number(item.fuel_amount || 0),
+    vehicle_amount: Number(item.vehicle_amount || 0),
     ride_count: Number(item.ride_count || 0),
     refueled: !!item.refueled,
     notes: item.notes || ''
@@ -538,6 +582,7 @@ async function importJson(event) {
       end_km: Number(item.end_km || 0),
       gross_amount: Number(item.gross_amount || 0),
       fuel_amount: Number(item.fuel_amount || 0),
+      vehicle_amount: Number(item.vehicle_amount || 0),
       ride_count: Number(item.ride_count || 0),
       refueled: !!item.refueled,
       notes: item.notes || '',
@@ -586,6 +631,8 @@ function formatHoursMinutes(secs) {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 function combineDateAndTime(date, time) { return new Date(`${date}T${time}:00`).toISOString(); }
+function round2(value) { return Math.round(Number(value || 0) * 100) / 100; }
+
 function escapeHtml(text) {
   const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
   return String(text).replace(/[&<>"']/g, c => map[c]);
