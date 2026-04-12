@@ -26,7 +26,7 @@ const els = {
   finishDialog: $('finishDialog'), closeFinishDialog: $('closeFinishDialog'), finishForm: $('finishForm'),
   endKm: $('endKm'), grossAmount: $('grossAmount'), fuelAmount: $('fuelAmount'), vehicleAmount: $('vehicleAmount'), rideCount: $('rideCount'), refueled: $('refueled'), notes: $('notes'),
   periodType: $('periodType'), fromDate: $('fromDate'), toDate: $('toDate'), customRange: $('customRange'),
-  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), vehicleTotal: $('vehicleTotal'), netTotal: $('netTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
+  grossTotal: $('grossTotal'), fuelTotal: $('fuelTotal'), vehicleTotal: $('vehicleTotal'), netTotal: $('netTotal'), kmTotal: $('kmTotal'), hoursTotal: $('hoursTotal'), chartCanvas: $('chart'),
   historyList: $('historyList'), historyEmpty: $('historyEmpty'),
   editDialog: $('editDialog'), closeEditDialog: $('closeEditDialog'), editForm: $('editForm'), deleteEntryBtn: $('deleteEntryBtn'),
   editId: $('editId'), editDate: $('editDate'), editStartTime: $('editStartTime'), editEndTime: $('editEndTime'), editDriveTime: $('editDriveTime'), editStartKm: $('editStartKm'), editEndKm: $('editEndKm'), editGross: $('editGross'), editFuel: $('editFuel'), editVehicle: $('editVehicle'), editRides: $('editRides'), editRefueled: $('editRefueled'), editNotes: $('editNotes'),
@@ -348,10 +348,12 @@ function refreshDashboard() {
   const fuel = filtered.reduce((sum, item) => sum + Number(item.fuel_amount || 0), 0);
   const vehicle = filtered.reduce((sum, item) => sum + Number(item.vehicle_amount || 0), 0);
   const secs = filtered.reduce((sum, item) => sum + Number(item.drive_seconds || 0), 0);
+  const kms = filtered.reduce((sum, item) => sum + Math.max(0, Number(item.end_km || 0) - Number(item.start_km || 0)), 0);
   els.grossTotal.textContent = money(gross);
   els.fuelTotal.textContent = money(fuel);
   els.vehicleTotal.textContent = money(vehicle);
   els.netTotal.textContent = money(gross - fuel - vehicle);
+  els.kmTotal.textContent = formatKm(kms);
   els.hoursTotal.textContent = formatHoursMinutes(secs);
   renderChart(filtered);
   renderHistory();
@@ -605,6 +607,11 @@ async function importJson(event) {
   } finally {
     event.target.value = '';
   }
+}
+
+
+function formatKm(value) {
+  return `${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
 }
 
 function money(value) { return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
